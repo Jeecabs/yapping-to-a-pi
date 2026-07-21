@@ -14,6 +14,11 @@ let package = Package(
         .executableTarget(
             name: "YappingToAPiHelper",
             path: "Sources/YappingToAPiHelper"
+        ),
+        .testTarget(
+            name: "YappingToAPiHelperTests",
+            dependencies: ["YappingToAPiHelper"],
+            path: "Tests/YappingToAPiHelperTests"
         )
     ],
     swiftLanguageModes: [.v6]

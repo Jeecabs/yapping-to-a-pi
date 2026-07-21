@@ -5,9 +5,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 
-import { loadDictationConfig, saveDictationConfig, shortcutWarning, isValidShortcut, isValidLocale } from "./config.js";
-import { DictationController, type DictationSnapshot } from "./controller.js";
-import { assertHelperExists, runHelperDoctor, startNativeHelper } from "./helper-process.js";
+import {
+  canonicalizeLocale,
+  loadDictationConfig,
+  saveDictationConfig,
+  shortcutWarning,
+  isValidShortcut,
+  isValidLocale,
+} from "./config.ts";
+import { DictationController, type DictationSnapshot } from "./controller.ts";
+import { assertHelperExists, runHelperDoctor, startNativeHelper } from "./helper-process.ts";
+import { SessionLifecycle } from "./session-lifecycle.ts";
 
 const DEFAULT_HELPER_PATH = fileURLToPath(
   new URL("../native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper", import.meta.url),
@@ -18,6 +26,9 @@ export default async function daDictation(pi: ExtensionAPI) {
   let activeContext: ExtensionContext | undefined;
   let acceptTranscript = false;
   let notifiedError: string | undefined;
+  let configWarningsShown = false;
+  let startPending = false;
+  const lifecycle = new SessionLifecycle();
 
   const controller = new DictationController({
     startHelper: startNativeHelper,
@@ -40,25 +51,40 @@ export default async function daDictation(pi: ExtensionAPI) {
   const toggle = async (ctx: ExtensionContext): Promise<void> => {
     activeContext = ctx;
     acceptTranscript = true;
-    if (controller.snapshot().phase === "idle" || controller.snapshot().phase === "failed") {
-      try {
-        await assertHelperExists(config.helperPath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        ctx.ui.notify(message, "error");
-        return;
-      }
+    const phase = controller.snapshot().phase;
+    if (phase !== "idle" && phase !== "failed") {
+      controller.toggle({ executable: config.helperPath, locale: config.locale });
+      return;
     }
-    controller.toggle({ executable: config.helperPath, locale: config.locale });
+    if (startPending) return;
+
+    startPending = true;
+    const preflight = await lifecycle.guard(() => assertHelperExists(config.helperPath));
+    startPending = false;
+    if (preflight.status === "stale") return;
+    if (preflight.status === "failed") {
+      const message = preflight.error instanceof Error ? preflight.error.message : String(preflight.error);
+      ctx.ui.notify(message, "error");
+      return;
+    }
+    if (controller.snapshot().phase === "idle" || controller.snapshot().phase === "failed") {
+      controller.toggle({ executable: config.helperPath, locale: config.locale });
+    }
   };
 
   pi.on("session_start", (_event, ctx) => {
+    lifecycle.activate();
     activeContext = ctx;
     acceptTranscript = true;
     renderStatus(ctx, controller.snapshot());
+    if (!configWarningsShown) {
+      for (const warning of config.warnings) ctx.ui.notify(warning, "warning");
+      configWarningsShown = true;
+    }
   });
 
   pi.on("session_shutdown", async () => {
+    lifecycle.deactivate();
     acceptTranscript = false;
     await controller.dispose();
     activeContext = undefined;
@@ -119,7 +145,12 @@ export default async function daDictation(pi: ExtensionAPI) {
     try {
       const result = await runHelperDoctor({ executable: config.helperPath, locale: config.locale });
       const model = result.supported ? (result.installed ? "ready" : "download needed") : "unsupported";
-      ctx.ui.notify(`${result.locale} · model ${model} · mic ${result.microphone}`, result.supported ? "info" : "warning");
+      const level = result.microphone === "denied" || result.microphone === "restricted"
+        ? "error"
+        : result.supported && result.installed && result.microphone === "authorized"
+          ? "info"
+          : "warning";
+      ctx.ui.notify(`${result.locale} · model ${model} · mic ${result.microphone}`, level);
     } catch (error) {
       ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     }
@@ -173,7 +204,7 @@ export default async function daDictation(pi: ExtensionAPI) {
           continue;
         }
         await saveDictationConfig({ locale: value });
-        config = { ...config, locale: value, localeSource: "file" };
+        config = { ...config, locale: canonicalizeLocale(value) ?? value, localeSource: "file" };
         reloadNeeded = true;
       }
     }

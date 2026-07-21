@@ -12,7 +12,7 @@ import {
 class FakeHelper implements HelperSession {
   readonly callbacks: HelperCallbacks;
   stopRequests = 0;
-  kills = 0;
+  killSignals: NodeJS.Signals[] = [];
 
   constructor(callbacks: HelperCallbacks) {
     this.callbacks = callbacks;
@@ -22,8 +22,8 @@ class FakeHelper implements HelperSession {
     this.stopRequests += 1;
   }
 
-  kill(): void {
-    this.kills += 1;
+  kill(signal: NodeJS.Signals = "SIGTERM"): void {
+    this.killSignals.push(signal);
   }
 
   exit(code = 0): void {
@@ -87,7 +87,7 @@ describe("DictationController", () => {
     controller.toggle({ executable: "/helper", locale: "en-AU" });
     helpers[0]?.callbacks.onMessage({ type: "error", code: "microphone-denied", message: "No microphone." });
     assert.equal(controller.snapshot().phase, "failed");
-    assert.equal(helpers[0]?.kills, 1);
+    assert.deepEqual(helpers[0]?.killSignals, ["SIGTERM"]);
     helpers[0]?.exit(1);
 
     assert.equal(controller.toggle({ executable: "/helper", locale: "en-AU" }), "started");
@@ -122,6 +122,63 @@ describe("DictationController", () => {
 
     controller.toggle({ executable: "/helper", locale: "en-AU" });
     await controller.dispose();
+    assert.equal(controller.snapshot().phase, "idle");
+  });
+
+  it("does not regress from stopping when late helper states arrive", () => {
+    let helper: FakeHelper | undefined;
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    controller.stop("command");
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "partial", text: "too late" });
+
+    assert.equal(controller.snapshot().phase, "stopping");
+    assert.equal(controller.snapshot().partialText, undefined);
+    helper?.exit();
+  });
+
+  it("escalates shutdown and resolves even when a helper never exits", async () => {
+    let helper: FakeHelper | undefined;
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      stopTimeoutMs: 5,
+      killTimeoutMs: 5,
+      disposeTimeoutMs: 20,
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    await controller.dispose();
+
+    assert.deepEqual(helper?.killSignals, ["SIGTERM", "SIGKILL"]);
+    assert.equal(controller.snapshot().phase, "idle");
+  });
+
+  it("treats forced cancellation as idle rather than failed", async () => {
+    let helper: FakeHelper | undefined;
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      stopTimeoutMs: 1,
+      killTimeoutMs: 50,
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    controller.stop("command");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    helper?.callbacks.onExit({ code: null, signal: "SIGTERM", stderr: "" });
+
     assert.equal(controller.snapshot().phase, "idle");
   });
 });

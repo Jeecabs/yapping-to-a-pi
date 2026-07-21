@@ -34,4 +34,4 @@ _Avoid_: Permanent “ready” status without checking the helper
 
 ## Testing
 
-Keep light tests around protocol parsing, state transitions, duplicate-final suppression, stop behavior, and configuration. Compile and doctor the native helper without opening the microphone in automated verification.
+Keep tests around protocol parsing, process transport races, monotonic state transitions, bounded shutdown, stale session work, duplicate-final suppression, stop behavior, configuration recovery, and the native stop gate. Compile, run Swift tests, and doctor the native helper without opening the microphone in automated verification.

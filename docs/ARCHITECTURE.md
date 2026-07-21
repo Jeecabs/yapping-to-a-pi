@@ -38,7 +38,7 @@ snapshot(): DictationSnapshot
 dispose(): Promise<void>
 ```
 
-The implementation hides helper creation, state transitions, final transcript deduplication, stop timeouts, process exit behavior, and cleanup. The extension supplies callbacks for state changes and one finalized transcript.
+The implementation hides helper creation, monotonic state transitions, final transcript deduplication, SIGTERM/SIGKILL escalation, bounded disposal, process exit behavior, and cleanup. Generation tokens reject callbacks from detached helper sessions. The extension supplies callbacks for state changes and one finalized transcript.
 
 ### Native helper
 
@@ -50,7 +50,7 @@ stdout: one validated NDJSON message per line
 exit:   0 after normal finalization; non-zero after failure
 ```
 
-The implementation hides microphone permission, locale resolution, model installation, audio conversion, streaming recognition, volatile-result replacement, and finalization.
+The implementation hides microphone permission, equivalent-locale resolution, model installation, audio conversion, streaming recognition, volatile-result replacement, supervised pipeline tasks, and finalization. A synchronized stop gate prevents preparation from starting later side effects after cancellation. Bounded audio queues turn overload into a visible failure instead of silently dropping speech.
 
 ## Protocol
 
@@ -69,11 +69,13 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 ## Lifecycle
 
 - First toggle while idle starts one helper.
-- A toggle while preparing/listening requests graceful stop.
-- The helper finishes its audio stream and asks SpeechAnalyzer to finalize outstanding text.
-- The controller accepts at most one final transcript per recording.
+- A toggle while preparing cancels remaining preparation; it does not insert a transcript.
+- A toggle while listening requests graceful finalization.
+- The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
+- Unexpected audio or recognition task completion fails the session immediately.
+- The controller accepts at most one final transcript per recording and ignores late state regressions.
 - Pi pastes that transcript at the editor cursor without submitting it.
-- `session_shutdown` requests stop, waits briefly, then kills a stuck helper.
+- `session_shutdown` invalidates pending async starts, requests stop, escalates from SIGTERM to SIGKILL, and returns within a fixed deadline.
 
 ## Permissions and privacy
 
@@ -81,7 +83,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 
 ## Configuration
 
-`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving.
+`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving. Shortcut validation rejects effective Pi/editor collisions. Malformed files are quarantined and invalid environment overrides fall back safely with a warning.
 
 Environment overrides:
 
@@ -89,4 +91,4 @@ Environment overrides:
 - `PI_DICTATION_LOCALE` — BCP-47 locale, default `en-AU`.
 - `PI_DICTATION_HELPER` — absolute helper executable override for development.
 
-Configuration is read when Pi loads the extension.
+Configuration is read when Pi loads the extension. The native build is staged, signed, verified, and swapped into place only after success so a failed rebuild preserves the previous helper.

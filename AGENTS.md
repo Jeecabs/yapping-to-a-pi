@@ -41,11 +41,13 @@ Do not move AVFoundation or Speech-framework details into the Pi extension. Do n
 - Keep `NSMicrophoneUsageDescription` in the helper app bundle.
 - Emit only NDJSON protocol messages on stdout. Diagnostics belong on stderr.
 - Never emit captured audio or save recordings.
-- Finalize recognition before exiting after a normal stop request.
+- Finalize recognition and await the result stream before exiting after a normal stop request.
+- Supervise capture, audio conversion, and recognition tasks; surface the first unexpected failure.
+- Never silently discard audio under backpressure.
 - Model downloads are allowed only through Apple's `AssetInventory`.
 
 ## Development hygiene
 
-- Run `pnpm check`, `pnpm test`, `pnpm build:native`, and `pnpm doctor` after meaningful changes.
+- Run `pnpm run verify` after meaningful changes. The native diagnostic script is `pnpm run doctor:native`; `pnpm doctor` is pnpm's unrelated built-in command.
 - Do not trigger microphone permission prompts in automated tests.
 - Update README and architecture docs when shortcut, install, permissions, or protocol behavior changes.

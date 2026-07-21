@@ -42,20 +42,21 @@ struct YappingToAPiHelper {
         do {
             let options = try Options.parse(Array(CommandLine.arguments.dropFirst()))
             let locale = Locale(identifier: options.localeIdentifier)
-            let identifier = locale.identifier(.bcp47)
+            let selectedLocale = await LiveDictation.supportedLocale(equivalentTo: locale)
+            let identifier = (selectedLocale ?? locale).identifier(.bcp47)
 
             if options.doctor {
                 await emitter.doctor(DoctorMessage(
                     locale: identifier,
-                    supported: await LiveDictation.isSupported(identifier),
-                    installed: await LiveDictation.isInstalled(identifier),
+                    supported: selectedLocale != nil,
+                    installed: await LiveDictation.isInstalled(locale),
                     microphone: microphoneStatus(),
                     osVersion: ProcessInfo.processInfo.operatingSystemVersionString
                 ))
                 return
             }
 
-            try await LiveDictation(locale: locale, localeIdentifier: identifier, emitter: emitter).run()
+            try await LiveDictation(locale: locale, emitter: emitter).run()
         } catch let failure as HelperFailure {
             await emitter.error(code: failure.code, message: failure.localizedDescription)
             FileHandle.standardError.write(Data("\(failure.localizedDescription)\n".utf8))

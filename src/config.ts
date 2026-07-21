@@ -1,4 +1,4 @@
-import type { KeyId } from "@earendil-works/pi-tui";
+import { getKeybindings, type KeyId } from "@earendil-works/pi-tui";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -10,6 +10,7 @@ export interface DictationConfig {
   configPath: string;
   shortcutSource: "environment" | "file" | "default";
   localeSource: "environment" | "file" | "default";
+  warnings: string[];
 }
 
 interface StoredConfig {
@@ -17,7 +18,12 @@ interface StoredConfig {
   locale?: string;
 }
 
-const DEFAULT_SHORTCUT = "ctrl+alt+d";
+interface StoredConfigRead {
+  stored: StoredConfig;
+  warning?: string;
+}
+
+const DEFAULT_SHORTCUT: KeyId = "ctrl+alt+d";
 const DEFAULT_LOCALE = "en-AU";
 const NAMED_KEYS = new Set([
   "escape",
@@ -39,7 +45,26 @@ const NAMED_KEYS = new Set([
   "left",
   "right",
 ]);
-const MODIFIERS = new Set(["ctrl", "shift", "alt"]);
+const SYMBOL_KEYS = new Set("`-=[]\\;',./!@#$%^&*()_+|~{}:<>?".split(""));
+const MODIFIERS = new Set(["ctrl", "shift", "alt", "super"]);
+const STATIC_SHORTCUT_COLLISIONS: Record<string, string> = {
+  enter: "submits the editor",
+  escape: "interrupts Pi",
+  esc: "interrupts Pi",
+  "ctrl+c": "clears or copies in Pi",
+  "ctrl+d": "exits Pi when the editor is empty",
+  "ctrl+z": "suspends Pi",
+  "shift+tab": "cycles thinking level",
+  "ctrl+p": "cycles models",
+  "shift+ctrl+p": "cycles models backward",
+  "ctrl+l": "opens the model selector",
+  "ctrl+o": "toggles tool output",
+  "ctrl+t": "toggles thinking",
+  "ctrl+g": "opens the external editor",
+  "ctrl+x": "copies a message",
+  "alt+enter": "queues a follow-up",
+  "ctrl+k": "deletes to the end of the line",
+};
 
 export function defaultConfigPath(home = homedir()): string {
   return join(home, ".pi", "agent", "yapping-to-a-pi.json");
@@ -52,20 +77,51 @@ export async function loadDictationConfig(options: {
 }): Promise<DictationConfig> {
   const env = options.env ?? process.env;
   const configPath = defaultConfigPath(options.home);
-  const stored = await readStoredConfig(configPath);
-  const envShortcut = cleanOptionalString(env.PI_DICTATION_SHORTCUT);
-  const storedShortcut = cleanOptionalString(stored.shortcut);
-  const shortcut = envShortcut ?? storedShortcut ?? DEFAULT_SHORTCUT;
+  const read = await readStoredConfigRecovering(configPath);
+  const warnings = read.warning ? [read.warning] : [];
 
-  if (!isValidShortcut(shortcut)) {
-    throw new Error(`Invalid dictation shortcut '${shortcut}'. Example: ctrl+alt+d`);
+  let shortcut = DEFAULT_SHORTCUT;
+  let shortcutSource: DictationConfig["shortcutSource"] = "default";
+  const storedShortcut = cleanOptionalString(read.stored.shortcut);
+  if (storedShortcut) {
+    const warning = shortcutProblem(storedShortcut);
+    if (warning) warnings.push(`Ignored saved shortcut '${storedShortcut}': ${warning}`);
+    else if (isValidShortcut(storedShortcut)) {
+      shortcut = storedShortcut;
+      shortcutSource = "file";
+    }
+  }
+  const envShortcut = cleanOptionalString(env.PI_DICTATION_SHORTCUT);
+  if (envShortcut) {
+    const warning = shortcutProblem(envShortcut);
+    if (warning) warnings.push(`Ignored PI_DICTATION_SHORTCUT='${envShortcut}': ${warning}`);
+    else if (isValidShortcut(envShortcut)) {
+      shortcut = envShortcut;
+      shortcutSource = "environment";
+    }
   }
 
+  let locale = DEFAULT_LOCALE;
+  let localeSource: DictationConfig["localeSource"] = "default";
+  const storedLocale = cleanOptionalString(read.stored.locale);
+  if (storedLocale) {
+    const canonical = canonicalizeLocale(storedLocale);
+    if (canonical) {
+      locale = canonical;
+      localeSource = "file";
+    } else {
+      warnings.push(`Ignored saved locale '${storedLocale}': expected a valid BCP-47 locale.`);
+    }
+  }
   const envLocale = cleanOptionalString(env.PI_DICTATION_LOCALE);
-  const storedLocale = cleanOptionalString(stored.locale);
-  const locale = envLocale ?? storedLocale ?? DEFAULT_LOCALE;
-  if (!isValidLocale(locale)) {
-    throw new Error(`Invalid dictation locale '${locale}'. Expected a BCP-47 locale such as en-AU.`);
+  if (envLocale) {
+    const canonical = canonicalizeLocale(envLocale);
+    if (canonical) {
+      locale = canonical;
+      localeSource = "environment";
+    } else {
+      warnings.push(`Ignored PI_DICTATION_LOCALE='${envLocale}': expected a valid BCP-47 locale.`);
+    }
   }
 
   return {
@@ -73,8 +129,9 @@ export async function loadDictationConfig(options: {
     locale,
     helperPath: cleanOptionalString(env.PI_DICTATION_HELPER) ?? options.defaultHelperPath,
     configPath,
-    shortcutSource: envShortcut ? "environment" : storedShortcut ? "file" : "default",
-    localeSource: envLocale ? "environment" : storedLocale ? "file" : "default",
+    shortcutSource,
+    localeSource,
+    warnings,
   };
 }
 
@@ -83,14 +140,26 @@ export async function saveDictationConfig(
   options: { home?: string } = {},
 ): Promise<string> {
   const configPath = defaultConfigPath(options.home);
-  const existing = await readStoredConfig(configPath);
-  const next: StoredConfig = { ...existing, ...patch };
+  const { stored } = await readStoredConfigRecovering(configPath);
+  const next: StoredConfig = {};
 
-  if (next.shortcut !== undefined && !isValidShortcut(next.shortcut)) {
-    throw new Error(`Invalid dictation shortcut '${next.shortcut}'. Example: ctrl+alt+d`);
+  const existingShortcut = cleanOptionalString(stored.shortcut);
+  if (existingShortcut && !shortcutProblem(existingShortcut)) next.shortcut = existingShortcut;
+  const existingLocale = cleanOptionalString(stored.locale);
+  const canonicalExistingLocale = existingLocale ? canonicalizeLocale(existingLocale) : undefined;
+  if (canonicalExistingLocale) next.locale = canonicalExistingLocale;
+
+  if (patch.shortcut !== undefined) {
+    const warning = shortcutProblem(patch.shortcut);
+    if (warning) throw new Error(`Invalid dictation shortcut '${patch.shortcut}': ${warning}`);
+    next.shortcut = patch.shortcut.trim();
   }
-  if (next.locale !== undefined && !isValidLocale(next.locale)) {
-    throw new Error(`Invalid dictation locale '${next.locale}'. Expected a BCP-47 locale such as en-AU.`);
+  if (patch.locale !== undefined) {
+    const canonical = canonicalizeLocale(patch.locale);
+    if (!canonical) {
+      throw new Error(`Invalid dictation locale '${patch.locale}'. Expected a BCP-47 locale such as en-AU.`);
+    }
+    next.locale = canonical;
   }
 
   await mkdir(dirname(configPath), { recursive: true, mode: 0o700 });
@@ -102,35 +171,67 @@ export async function saveDictationConfig(
 }
 
 export function isValidShortcut(value: string): value is KeyId {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized || /\s/.test(normalized)) return false;
-
-  const parts = normalized.split("+");
-  if (parts.some((part) => part.length === 0)) return false;
-  const key = parts.at(-1);
-  if (!key || !isKey(key)) return false;
-
-  const modifiers = parts.slice(0, -1);
-  return modifiers.length <= 3 && new Set(modifiers).size === modifiers.length && modifiers.every((part) => MODIFIERS.has(part));
+  return parseShortcut(value) !== undefined;
 }
 
 export function shortcutWarning(shortcut: string): string | undefined {
+  const parsed = parseShortcut(shortcut);
+  if (!parsed) return undefined;
   const normalized = shortcut.trim().toLowerCase();
-  const collisions: Record<string, string> = {
-    enter: "submits the editor",
-    escape: "interrupts Pi",
-    esc: "interrupts Pi",
-    "ctrl+c": "clears/copies in Pi",
-    "ctrl+d": "exits Pi when the editor is empty",
-    "ctrl+t": "toggles thinking",
-    "alt+d": "deletes the next word",
-  };
-  const meaning = collisions[normalized];
-  return meaning ? `${shortcut} already ${meaning}. Choose a different shortcut.` : undefined;
+  const staticMeaning = STATIC_SHORTCUT_COLLISIONS[normalized];
+  if (staticMeaning) return `${shortcut} already ${staticMeaning}. Choose a different shortcut.`;
+
+  if (parsed.modifiers.length === 0 && isPrintableKey(parsed.key)) {
+    return `${shortcut} would trigger while typing. Choose a modified or function key.`;
+  }
+
+  try {
+    const resolved = getKeybindings().getResolvedBindings();
+    for (const [action, keys] of Object.entries(resolved)) {
+      const assigned = (Array.isArray(keys) ? keys : keys ? [keys] : []).map((key) => key.toLowerCase());
+      if (assigned.includes(normalized)) {
+        return `${shortcut} is already assigned to ${action}. Choose a different shortcut.`;
+      }
+    }
+  } catch {
+    // Static collision protection remains available outside an initialized Pi TUI.
+  }
+
+  return undefined;
 }
 
 export function isValidLocale(value: string): boolean {
-  return /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})+$/.test(value.trim());
+  return canonicalizeLocale(value) !== undefined;
+}
+
+export function canonicalizeLocale(value: string): string | undefined {
+  const candidate = value.trim();
+  if (!candidate) return undefined;
+  try {
+    return Intl.getCanonicalLocales(candidate)[0];
+  } catch {
+    return undefined;
+  }
+}
+
+async function readStoredConfigRecovering(configPath: string): Promise<StoredConfigRead> {
+  try {
+    return { stored: await readStoredConfig(configPath) };
+  } catch (error) {
+    const quarantinePath = `${configPath}.invalid-${Date.now()}`;
+    try {
+      await rename(configPath, quarantinePath);
+      return {
+        stored: {},
+        warning: `Recovered invalid configuration by moving it to ${quarantinePath}.`,
+      };
+    } catch {
+      return {
+        stored: {},
+        warning: `Ignored invalid configuration at ${configPath}: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
 }
 
 async function readStoredConfig(configPath: string): Promise<StoredConfig> {
@@ -166,11 +267,44 @@ async function readStoredConfig(configPath: string): Promise<StoredConfig> {
   return result;
 }
 
+function shortcutProblem(value: string): string | undefined {
+  if (!isValidShortcut(value)) return "use a Pi key such as ctrl+alt+d, ctrl+?, or f6.";
+  return shortcutWarning(value);
+}
+
+function parseShortcut(value: string): { modifiers: string[]; key: string } | undefined {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || /\s/.test(normalized)) return undefined;
+
+  let modifiers: string[];
+  let key: string;
+  if (normalized === "+") {
+    modifiers = [];
+    key = "+";
+  } else if (normalized.endsWith("++")) {
+    modifiers = normalized.slice(0, -2).split("+");
+    key = "+";
+  } else {
+    const parts = normalized.split("+");
+    if (parts.some((part) => part.length === 0)) return undefined;
+    key = parts.at(-1) ?? "";
+    modifiers = parts.slice(0, -1);
+  }
+
+  if (!isKey(key)) return undefined;
+  if (modifiers.length > 4 || new Set(modifiers).size !== modifiers.length) return undefined;
+  if (!modifiers.every((modifier) => MODIFIERS.has(modifier))) return undefined;
+  return { modifiers, key };
+}
+
 function isKey(value: string): boolean {
   if (/^[a-z0-9]$/.test(value)) return true;
   if (/^f(?:[1-9]|1[0-2])$/.test(value)) return true;
-  if (NAMED_KEYS.has(value)) return true;
-  return /^[-=`[\]\\;',./]$/.test(value);
+  return NAMED_KEYS.has(value) || SYMBOL_KEYS.has(value);
+}
+
+function isPrintableKey(value: string): boolean {
+  return /^[a-z0-9]$/.test(value) || SYMBOL_KEYS.has(value) || value === "space";
 }
 
 function cleanOptionalString(value: string | undefined): string | undefined {

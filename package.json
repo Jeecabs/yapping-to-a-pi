@@ -22,8 +22,9 @@
     "build:native": "node scripts/build-native.mjs",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
-    "doctor": "native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper --doctor",
-    "verify": "pnpm check && pnpm test && pnpm build:native && pnpm doctor"
+    "test:native": "xcrun swift test --package-path native",
+    "doctor:native": "native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper --doctor",
+    "verify": "pnpm run check && pnpm run test && pnpm run test:native && pnpm run build:native && pnpm run doctor:native"
   },
   "engines": {
     "node": ">=22.19.0"

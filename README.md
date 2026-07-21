@@ -8,26 +8,33 @@ Press the shortcut once to listen and again to finish. The transcript is pasted 
 
 - macOS 26 or newer
 - a locale supported by Apple's `SpeechTranscriber`
-- Xcode Command Line Tools / Swift 6.2 to build the native helper
+- Xcode Command Line Tools / Swift 6.2 with the Xcode license accepted
 - Pi interactive TUI
 
 This Mac has already been verified with `en-AU`: the model is supported and installed.
 
 ## Install
 
-### HTTPS
+The repository is private. Configure GitHub HTTPS credentials first if needed:
+
+```bash
+gh auth login
+gh auth setup-git
+```
+
+Then install it directly from GitHub:
 
 ```bash
 pi install https://github.com/Jeecabs/yapping-to-a-pi
 ```
 
-### Git shorthand
+Git shorthand also works:
 
 ```bash
 pi install git:github.com/Jeecabs/yapping-to-a-pi
 ```
 
-### Local development
+For local development:
 
 ```bash
 git clone https://github.com/Jeecabs/yapping-to-a-pi.git
@@ -36,10 +43,17 @@ pnpm install
 pi install .
 ```
 
-`pnpm install` builds and ad-hoc signs `YappingToAPiHelper.app`. Reload Pi if it is already open:
+Installation builds `YappingToAPiHelper.app`. Reload Pi if it is already open:
 
 ```text
 /reload
+```
+
+If an interrupted update leaves the native helper missing, reinstall cleanly:
+
+```bash
+pi remove https://github.com/Jeecabs/yapping-to-a-pi
+pi install https://github.com/Jeecabs/yapping-to-a-pi
 ```
 
 ## Use
@@ -51,7 +65,8 @@ Ctrl-Option-D
 ```
 
 - First press: prepare and listen.
-- Second press: finalize and insert text.
+- Second press while listening: finalize and insert text.
+- Second press while preparing: cancel; no transcript is inserted.
 - Edit the text normally, then submit it yourself.
 
 The UI stays quiet while idle. While active, the footer shows only a small `mic` indicator.
@@ -78,7 +93,7 @@ Shortcut and locale changes are saved to:
 ~/.pi/agent/yapping-to-a-pi.json
 ```
 
-Pi reloads the extension after a saved change so the new shortcut takes effect.
+Pi reloads the extension after a saved change. Reserved Pi/editor shortcuts are rejected. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
 
 Environment variables override saved settings for one shell/session:
 
@@ -86,17 +101,21 @@ Environment variables override saved settings for one shell/session:
 - `PI_DICTATION_LOCALE`
 - `PI_DICTATION_HELPER` — native executable override for development
 
+Invalid overrides are ignored with a warning rather than disabling the extension.
+
 ## Commands
 
 | Command | Description |
 | --- | --- |
 | `/dictation` | Toggle listening |
-| `/dictation stop` | Stop and finalize |
+| `/dictation stop` | Stop or cancel the active session |
 | `/dictation status` | Show phase, shortcut, and locale |
 | `/dictation settings` | Open the configuration TUI |
 | `/dictation doctor` | Check model and microphone status |
 | `/dictation shortcut <keys>` | Save a new shortcut and reload |
-| `/dictation locale <locale>` | Save a new BCP-47 locale and reload |
+| `/dictation locale <locale>` | Save a BCP-47 locale and reload |
+
+Language-only locales such as `en` are valid; the helper resolves them to Apple's supported equivalent and reports the selected locale in diagnostics.
 
 ## First recording
 
@@ -106,7 +125,7 @@ macOS may ask for microphone access for **yapping to a pi**. If access was denie
 System Settings → Privacy & Security → Microphone
 ```
 
-If a supported language model is not installed, Apple's `AssetInventory` downloads it once before listening.
+If a supported language model is not installed, Apple's `AssetInventory` downloads it once before listening. A stop request prevents later preparation phases, including microphone startup; the controller force-terminates a helper that does not cancel promptly.
 
 ## Privacy
 
@@ -116,14 +135,33 @@ If a supported language model is not installed, Apple's `AssetInventory` downloa
 - Apple may use the network only to download/update model assets through `AssetInventory`.
 - Dictated text is inserted into the Pi editor; it reaches the selected model only if you submit the prompt.
 
+## Native signing
+
+Local builds use an ad-hoc signature by default. macOS may ask for microphone permission again after a helper update, and quarantined copies are not intended for general distribution.
+
+A stable signing identity can be supplied locally:
+
+```bash
+YAPPING_TO_A_PI_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" pnpm run build:native
+```
+
+Public distribution would additionally require hardened runtime signing and notarization.
+
 ## Development
 
 ```bash
 pnpm install
-pnpm check
-pnpm test
-pnpm build:native
-pnpm doctor
+pnpm run check
+pnpm run test
+pnpm run test:native
+pnpm run build:native
+pnpm run doctor:native
+```
+
+Or run everything:
+
+```bash
+pnpm run verify
 ```
 
 Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)

@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
 import { createInterface } from "node:readline";
 
-import type { HelperCallbacks, HelperSession, StartHelper } from "./controller.js";
-import { parseDoctorMessage, parseHelperMessage, type DoctorMessage } from "./protocol.js";
+import type { HelperCallbacks, HelperSession, StartHelper } from "./controller.ts";
+import { parseDoctorMessage, parseHelperMessage, type DoctorMessage } from "./protocol.ts";
 
 const MAX_STDERR_LENGTH = 8_192;
 
@@ -13,6 +13,7 @@ export const startNativeHelper: StartHelper = (options, callbacks) => {
   });
   let stderr = "";
   let closed = false;
+  let stopRequested = false;
 
   const lines = createInterface({ input: child.stdout, crlfDelay: Infinity });
   lines.on("line", (line) => {
@@ -28,6 +29,10 @@ export const startNativeHelper: StartHelper = (options, callbacks) => {
   child.stderr.on("data", (chunk: string) => {
     stderr = `${stderr}${chunk}`.slice(-MAX_STDERR_LENGTH);
   });
+  child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+    if (stopRequested && (error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED")) return;
+    callbacks.onTransportError(error);
+  });
 
   child.on("error", (error) => callbacks.onTransportError(error));
   child.on("close", (code, signal) => {
@@ -39,10 +44,12 @@ export const startNativeHelper: StartHelper = (options, callbacks) => {
 
   return {
     requestStop(): void {
+      if (stopRequested || closed) return;
+      stopRequested = true;
       if (!child.stdin.destroyed && child.stdin.writable) child.stdin.end("\n");
     },
-    kill(): void {
-      if (!child.killed) child.kill("SIGTERM");
+    kill(signal = "SIGTERM"): void {
+      if (!closed) child.kill(signal);
     },
   } satisfies HelperSession;
 };
@@ -51,7 +58,9 @@ export async function assertHelperExists(executable: string): Promise<void> {
   try {
     await access(executable);
   } catch {
-    throw new Error(`Dictation helper not found at ${executable}. Run pnpm build:native.`);
+    throw new Error(
+      `Dictation helper not found at ${executable}. Reinstall the Pi package, or run pnpm run build:native in that checkout.`,
+    );
   }
 }
 
