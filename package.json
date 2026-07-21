@@ -1,0 +1,49 @@
+{
+  "name": "yapping-to-a-pi",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "description": "Private Pi package for hotkey-triggered, on-device macOS dictation — yapping to a pi.",
+  "keywords": [
+    "pi-package",
+    "dictation",
+    "speech-to-text",
+    "macos",
+    "on-device"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "scripts": {
+    "postinstall": "node scripts/build-native.mjs",
+    "build:native": "node scripts/build-native.mjs",
+    "check": "tsc --noEmit",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "doctor": "native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper --doctor",
+    "verify": "pnpm check && pnpm test && pnpm build:native && pnpm doctor"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-tui": "^0.80.10",
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2"
+  }
+}
