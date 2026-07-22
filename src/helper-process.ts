@@ -1,11 +1,19 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access } from "node:fs/promises";
+import { promisify } from "node:util";
 import { createInterface } from "node:readline";
 
 import type { HelperCallbacks, HelperSession, StartHelper } from "./controller.ts";
+import { nativeHostProblem } from "./native-requirements.ts";
 import { parseDoctorMessage, parseHelperMessage, type DoctorMessage } from "./protocol.ts";
 
 const MAX_STDERR_LENGTH = 8_192;
+const execFileAsync = promisify(execFile);
+
+interface HelperPreflightOptions {
+  platform?: NodeJS.Platform;
+  readMacOSVersion?: () => Promise<string | undefined>;
+}
 
 export const startNativeHelper: StartHelper = (options, callbacks) => {
   const child = spawn(options.executable, ["--locale", options.locale], {
@@ -54,13 +62,35 @@ export const startNativeHelper: StartHelper = (options, callbacks) => {
   } satisfies HelperSession;
 };
 
-export async function assertHelperExists(executable: string): Promise<void> {
+export async function assertHelperExists(
+  executable: string,
+  options: HelperPreflightOptions = {},
+): Promise<void> {
+  const hostProblem = await detectHostProblem(options);
+  if (hostProblem) throw new Error(hostProblem);
+
   try {
     await access(executable);
   } catch {
     throw new Error(
-      `Dictation helper not found at ${executable}. Reinstall the Pi package, or run pnpm run build:native in that checkout.`,
+      `Dictation helper not found at ${executable}. Reinstall the Pi package, or run pnpm run build:native in that checkout. Native builds require Xcode with Apple Swift 6.2 or newer.`,
     );
+  }
+}
+
+async function detectHostProblem(options: HelperPreflightOptions): Promise<string | undefined> {
+  const platform = options.platform ?? process.platform;
+  if (platform !== "darwin") return nativeHostProblem(platform);
+  const readMacOSVersion = options.readMacOSVersion ?? readMacOSProductVersion;
+  return nativeHostProblem(platform, await readMacOSVersion());
+}
+
+async function readMacOSProductVersion(): Promise<string | undefined> {
+  try {
+    const { stdout } = await execFileAsync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8" });
+    return stdout.trim() || undefined;
+  } catch {
+    return undefined;
   }
 }
 

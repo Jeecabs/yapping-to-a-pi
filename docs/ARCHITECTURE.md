@@ -68,7 +68,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 
 ## Lifecycle
 
-- First toggle while idle starts one helper.
+- First toggle while idle checks host requirements, then starts one helper. Unsupported macOS releases get an actionable upgrade message before helper-path validation.
 - A toggle while preparing cancels remaining preparation; it does not insert a transcript.
 - A toggle while listening requests graceful finalization.
 - The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
@@ -92,4 +92,4 @@ Environment overrides:
 - `PI_DICTATION_LOCALE` — BCP-47 locale, default `en-AU`.
 - `PI_DICTATION_HELPER` — absolute helper executable override for development.
 
-Configuration is read when Pi loads the extension. The native build is staged, signed, verified, and swapped into place only after success so a failed rebuild preserves the previous helper.
+Configuration is read when Pi loads the extension. Native installation preflights macOS 26+ and Apple Swift 6.2+, accepting all future major versions rather than matching version 26 exactly. Postinstall skips the helper build without disabling the extension when requirements are unmet; explicit development builds still fail. This leaves commands and shortcuts available to explain the requirement. Supported native builds are staged, signed, verified, and swapped into place only after success so a failed rebuild preserves the previous helper.

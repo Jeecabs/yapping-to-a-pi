@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
 
 import type { HelperSession } from "../src/controller.ts";
-import { startNativeHelper } from "../src/helper-process.ts";
+import { assertHelperExists, startNativeHelper } from "../src/helper-process.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -14,6 +14,16 @@ afterEach(async () => {
 });
 
 describe("native helper process adapter", () => {
+  it("explains unsupported macOS when the helper build is missing", async () => {
+    await assert.rejects(
+      assertHelperExists("/missing/yapping-helper", {
+        platform: "darwin",
+        readMacOSVersion: async () => "15.3.1",
+      }),
+      /Dictation unavailable: macOS 26 or newer is required; this Mac runs macOS 15\.3\.1/,
+    );
+  });
+
   it("treats EPIPE while requesting stop as an expected close race", async () => {
     const directory = await mkdtemp(join(tmpdir(), "yapping-helper-test-"));
     temporaryDirectories.push(directory);
