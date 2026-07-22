@@ -79,7 +79,7 @@ Dictation follows the current macOS default input device. If AirPods or another 
 /dictation settings
 ```
 
-The compact settings menu edits the shortcut and locale, and runs diagnostics.
+The compact settings menu edits the shortcut and locale, and runs diagnostics. To change the shortcut, select it and press the new key combination once—there is no key-syntax string to type.
 
 Direct configuration also works:
 
@@ -95,7 +95,7 @@ Shortcut and locale changes are saved to:
 ~/.pi/agent/yapping-to-a-pi.json
 ```
 
-Pi reloads the extension after a saved change. Modified letter shortcuts register shifted and unshifted variants for case-insensitive activation; both variants are checked for reserved Pi/editor collisions. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
+Pi reloads the extension after a saved change. Modified letter shortcuts are saved as one lowercase logical binding and register both shifted and unshifted variants, so Shift and Caps Lock do not change activation. Both variants are checked for reserved Pi/editor collisions. Shift-only letter shortcuts are rejected because making them case-insensitive would also intercept normal typing. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
 
 Environment variables override saved settings for one shell/session:
 

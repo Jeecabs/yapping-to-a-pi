@@ -32,10 +32,10 @@ describe("shortcut configuration", () => {
     assert.equal(isValidShortcut("ctrl++d"), false);
   });
 
-  it("adds a shifted variant for case-insensitive modified letter shortcuts", () => {
+  it("canonicalizes modified letters to one case-insensitive logical shortcut", () => {
     assert.deepEqual(shortcutVariants("ctrl+alt+d"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
     assert.deepEqual(shortcutVariants("Ctrl+Alt+D"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
-    assert.deepEqual(shortcutVariants("ctrl+alt+shift+d"), ["ctrl+shift+alt+d", "ctrl+alt+d"]);
+    assert.deepEqual(shortcutVariants("ctrl+alt+shift+d"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
     assert.deepEqual(shortcutVariants("shift+d"), ["shift+d"]);
     assert.deepEqual(shortcutVariants("f6"), ["f6"]);
   });
@@ -46,15 +46,16 @@ describe("shortcut configuration", () => {
     assert.match(shortcutWarning("shift+tab") ?? "", /already/);
     assert.match(shortcutWarning("ctrl+p") ?? "", /already/);
     assert.match(shortcutWarning("d") ?? "", /typing/);
+    assert.match(shortcutWarning("shift+d") ?? "", /case-insensitive/);
     assert.equal(shortcutWarning("ctrl+alt+d"), undefined);
   });
 
   it("persists user settings and gives environment variables precedence", async () => {
     const home = await makeHome();
-    await saveDictationConfig({ shortcut: "f6", locale: "en-US" }, { home });
+    await saveDictationConfig({ shortcut: "ctrl+shift+alt+d", locale: "en-US" }, { home });
 
     const stored = await loadDictationConfig({ env: {}, home, defaultHelperPath: "/helper" });
-    assert.equal(stored.shortcut, "f6");
+    assert.equal(stored.shortcut, "ctrl+alt+d");
     assert.equal(stored.locale, "en-US");
     assert.equal(stored.shortcutSource, "file");
     assert.equal(stored.localeSource, "file");
