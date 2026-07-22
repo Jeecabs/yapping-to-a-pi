@@ -11,7 +11,7 @@ Press the shortcut once to listen and again to finish. The transcript is pasted 
 - Xcode Command Line Tools / Swift 6.2 with the Xcode license accepted
 - Pi interactive TUI
 
-This Mac has already been verified with `en-AU`: the model is supported and installed.
+Runtime and install checks accept macOS 26 and all newer major versions. Unsupported hosts receive an actionable version message instead of a generic missing-helper error.
 
 ## Install
 
@@ -43,13 +43,13 @@ pnpm install
 pi install .
 ```
 
-Installation builds `YappingToAPiHelper.app`. Reload Pi if it is already open:
+On a supported host, installation builds `YappingToAPiHelper.app`. On an unsupported host, installation keeps the extension available but skips the helper build so dictation commands can explain the unmet requirement. Reload Pi if it is already open:
 
 ```text
 /reload
 ```
 
-If an interrupted update leaves the native helper missing, reinstall cleanly:
+If an interrupted update leaves the native helper missing on a supported Mac, reinstall cleanly:
 
 ```bash
 pi remove https://github.com/Jeecabs/yapping-to-a-pi
@@ -101,7 +101,7 @@ Environment variables override saved settings for one shell/session:
 - `PI_DICTATION_LOCALE`
 - `PI_DICTATION_HELPER` — native executable override for development
 
-Invalid overrides are ignored with a warning rather than disabling the extension.
+Invalid overrides are ignored with a warning rather than disabling the extension. If the helper is unavailable, `/dictation`, its shortcut, and `/dictation doctor` first report unsupported macOS versions clearly. On a supported macOS release, a missing helper message points to the Xcode/Swift 6.2 build requirement.
 
 ## Commands
 
