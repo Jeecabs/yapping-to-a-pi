@@ -51,6 +51,7 @@ struct YappingToAPiHelper {
                     supported: selectedLocale != nil,
                     installed: await LiveDictation.isInstalled(locale),
                     microphone: microphoneStatus(),
+                    inputDevice: LiveDictation.currentInputDeviceName(),
                     osVersion: ProcessInfo.processInfo.operatingSystemVersionString
                 ))
                 return

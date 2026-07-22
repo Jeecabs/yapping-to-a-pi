@@ -5,11 +5,17 @@ import { HelperProtocolError, parseDoctorMessage, parseHelperMessage } from "../
 
 describe("parseHelperMessage", () => {
   it("parses state and transcript messages", () => {
-    assert.deepEqual(parseHelperMessage('{"type":"state","state":"listening","locale":"en-AU"}'), {
-      type: "state",
-      state: "listening",
-      locale: "en-AU",
-    });
+    assert.deepEqual(
+      parseHelperMessage(
+        '{"type":"state","state":"listening","locale":"en-AU","inputDevice":"MacBook Pro Microphone"}',
+      ),
+      {
+        type: "state",
+        state: "listening",
+        locale: "en-AU",
+        inputDevice: "MacBook Pro Microphone",
+      },
+    );
     assert.deepEqual(parseHelperMessage('{"type":"partial","text":"hello"}'), {
       type: "partial",
       text: "hello",
@@ -32,7 +38,7 @@ describe("parseDoctorMessage", () => {
   it("validates diagnostics fields", () => {
     assert.deepEqual(
       parseDoctorMessage(
-        '{"type":"doctor","locale":"en-AU","engine":"speech-transcriber","supported":true,"installed":true,"microphone":"authorized","osVersion":"Version 26.6"}',
+        '{"type":"doctor","locale":"en-AU","engine":"speech-transcriber","supported":true,"installed":true,"microphone":"authorized","inputDevice":"MacBook Pro Microphone","osVersion":"Version 26.6"}',
       ),
       {
         type: "doctor",
@@ -41,6 +47,7 @@ describe("parseDoctorMessage", () => {
         supported: true,
         installed: true,
         microphone: "authorized",
+        inputDevice: "MacBook Pro Microphone",
         osVersion: "Version 26.6",
       },
     );

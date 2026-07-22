@@ -145,7 +145,7 @@ export default async function daDictation(pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("/dictation · stop · status · settings · doctor", "info");
+      ctx.ui.notify("/dictation [stop | status | settings | doctor]", "info");
     },
   });
 
@@ -158,7 +158,7 @@ export default async function daDictation(pi: ExtensionAPI) {
         : result.supported && result.installed && result.microphone === "authorized"
           ? "info"
           : "warning";
-      ctx.ui.notify(`${result.locale} · model ${model} · mic ${result.microphone}`, level);
+      ctx.ui.notify(`${result.locale} — ${result.inputDevice} — model ${model} — mic ${result.microphone}`, level);
     } catch (error) {
       ctx.ui.notify(error instanceof Error ? error.message : String(error), "error");
     }
@@ -339,17 +339,17 @@ class DictationFeedbackWidget {
     if (this.snapshot.phase === "listening") {
       const colors = ["dim", "muted", "success", "muted"] as const;
       const pulse = this.theme.fg(colors[this.frame]!, "●");
-      const detail = this.snapshot.partialText?.trim() ? "live transcript" : "speak now";
-      return `${pulse} ${this.theme.fg("success", "listening")} ${this.theme.fg("dim", `· ${detail}`)}`;
+      return `${pulse} ${this.theme.fg("muted", "listening")}`;
     }
     if (this.snapshot.phase === "stopping") {
-      return `${this.theme.fg("dim", "◌")} ${this.theme.fg("muted", "finalizing transcript…")}`;
+      return `${this.theme.fg("dim", "◌")} ${this.theme.fg("muted", "finalizing")}`;
     }
-    return `${this.theme.fg("dim", ["◐", "◓", "◑", "◒"][this.frame]!)} ${this.theme.fg("muted", "preparing microphone…")}`;
+    return `${this.theme.fg("dim", ["◐", "◓", "◑", "◒"][this.frame]!)} ${this.theme.fg("muted", "preparing")}`;
   }
 }
 
 function formatStatus(snapshot: DictationSnapshot, config: Awaited<ReturnType<typeof loadDictationConfig>>): string {
-  const detail = snapshot.error ? ` · ${snapshot.error}` : "";
-  return `${snapshot.phase} · ${config.shortcut} · ${config.locale}${detail}`;
+  const inputDevice = snapshot.inputDevice ? ` — ${snapshot.inputDevice}` : "";
+  const detail = snapshot.error ? ` — ${snapshot.error}` : "";
+  return `${snapshot.phase}${inputDevice} — ${config.shortcut} — ${config.locale}${detail}`;
 }
