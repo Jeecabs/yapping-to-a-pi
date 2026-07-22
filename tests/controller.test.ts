@@ -47,13 +47,19 @@ describe("DictationController", () => {
     });
 
     assert.equal(controller.toggle({ executable: "/helper", locale: "en-AU" }), "started");
-    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({
+      type: "state",
+      state: "listening",
+      locale: "en-AU",
+      inputDevice: "MacBook Pro Microphone",
+    });
     helper?.callbacks.onMessage({ type: "partial", text: "hello" });
     helper?.callbacks.onMessage({ type: "final", text: " Hello world. " });
     helper?.callbacks.onMessage({ type: "final", text: "duplicate" });
     helper?.exit();
 
     assert.deepEqual(transcripts, ["Hello world."]);
+    assert.equal(states[1]?.inputDevice, "MacBook Pro Microphone");
     assert.equal(states[2]?.partialText, "hello");
     assert.equal(controller.snapshot().phase, "idle");
     assert.deepEqual(states.map((state) => state.phase), ["preparing", "listening", "listening", "idle"]);

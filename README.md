@@ -69,7 +69,9 @@ Ctrl-Option-D
 - Second press while preparing: cancel; no transcript is inserted.
 - Edit the text normally, then submit it yourself.
 
-The UI stays quiet while idle. While active, the footer shows a small `mic` indicator and a compact widget above the editor shows preparation, listening, and finalization. Partial recognition streams into that widget; the finalized transcript is still inserted once at the editor cursor so dictation never overwrites edits in progress.
+The UI stays quiet while idle. While active, the footer shows a small `mic` indicator and a compact widget above the editor shows only the current phase and any partial transcript. The finalized transcript is inserted once at the editor cursor so dictation never overwrites edits in progress.
+
+Dictation follows the current macOS default input device. If AirPods or another microphone are selected but provide silence, macOS may not switch automatically; choose the intended input in Control Center → Sound. `/dictation status` identifies the device used by an active recording, and `/dictation doctor` identifies the current default input.
 
 ## Settings TUI
 
@@ -109,9 +111,9 @@ Invalid overrides are ignored with a warning rather than disabling the extension
 | --- | --- |
 | `/dictation` | Toggle listening |
 | `/dictation stop` | Stop or cancel the active session |
-| `/dictation status` | Show phase, shortcut, and locale |
+| `/dictation status` | Show phase, active input device, shortcut, and locale |
 | `/dictation settings` | Open the configuration TUI |
-| `/dictation doctor` | Check model and microphone status |
+| `/dictation doctor` | Check input device, model, and microphone status |
 | `/dictation shortcut <keys>` | Save a new shortcut and reload |
 | `/dictation locale <locale>` | Save a BCP-47 locale and reload |
 

@@ -3,8 +3,8 @@ import Foundation
 actor ProtocolEmitter {
     private let encoder = JSONEncoder()
 
-    func state(_ state: String, locale: String) {
-        emit(StateMessage(type: "state", state: state, locale: locale))
+    func state(_ state: String, locale: String, inputDevice: String? = nil) {
+        emit(StateMessage(type: "state", state: state, locale: locale, inputDevice: inputDevice))
     }
 
     func partial(_ text: String) {
@@ -38,6 +38,7 @@ private struct StateMessage: Encodable {
     let type: String
     let state: String
     let locale: String
+    let inputDevice: String?
 }
 
 private struct TextMessage: Encodable {
@@ -58,5 +59,6 @@ struct DoctorMessage: Encodable {
     let supported: Bool
     let installed: Bool
     let microphone: String
+    let inputDevice: String
     let osVersion: String
 }

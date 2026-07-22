@@ -5,6 +5,7 @@ export type DictationPhase = "idle" | "preparing" | "listening" | "stopping" | "
 export interface DictationSnapshot {
   phase: DictationPhase;
   locale?: string;
+  inputDevice?: string;
   partialText?: string;
   error?: string;
 }
@@ -150,7 +151,7 @@ export class DictationController {
         : message.state === "finalizing"
           ? "stopping"
           : "preparing";
-      this.transition({ phase, locale: message.locale });
+      this.transition({ phase, locale: message.locale, inputDevice: message.inputDevice });
       return;
     }
 

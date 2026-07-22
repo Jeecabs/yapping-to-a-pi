@@ -227,7 +227,11 @@ struct LiveDictation {
                     eventContinuation.finish()
                 }
 
-                await emitter.state("listening", locale: localeIdentifier)
+                await emitter.state(
+                    "listening",
+                    locale: localeIdentifier,
+                    inputDevice: Self.currentInputDeviceName()
+                )
                 guard let event = await events.first(where: { _ in true }) else {
                     throw HelperFailure.pipelineFailed("The dictation pipeline stopped without a result.")
                 }
@@ -271,6 +275,10 @@ struct LiveDictation {
         let identifier = selected.identifier(.bcp47)
         let installed = await SpeechTranscriber.installedLocales
         return installed.contains { $0.identifier(.bcp47) == identifier }
+    }
+
+    static func currentInputDeviceName() -> String {
+        AVCaptureDevice.default(for: .audio)?.localizedName ?? "Unknown input"
     }
 
     private func runUntilStopped<T: Sendable>(

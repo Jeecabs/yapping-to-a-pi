@@ -58,7 +58,7 @@ Messages are newline-delimited JSON:
 
 ```json
 {"type":"state","state":"preparing","locale":"en-AU"}
-{"type":"state","state":"listening","locale":"en-AU"}
+{"type":"state","state":"listening","locale":"en-AU","inputDevice":"MacBook Pro Microphone"}
 {"type":"partial","text":"hello wor"}
 {"type":"final","text":"Hello world."}
 {"type":"error","code":"microphone-denied","message":"Microphone access was denied."}
@@ -74,13 +74,13 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 - The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
 - Unexpected audio or recognition task completion fails the session immediately.
 - The controller accepts at most one final transcript per recording and ignores late state regressions.
-- Pi streams partial text into a compact feedback widget without mutating the editor.
+- Pi streams partial text into a compact feedback widget without mutating the editor. The live chrome shows only a quiet phase label; input-device detail remains available through status and diagnostics.
 - Pi pastes the finalized transcript at the editor cursor without submitting it. Keeping volatile recognition outside the editor avoids overwriting concurrent human edits or requiring unsupported cursor-range replacement.
 - `session_shutdown` invalidates pending async starts, requests stop, escalates from SIGTERM to SIGKILL, and returns within a fixed deadline.
 
 ## Permissions and privacy
 
-`YappingToAPiHelper.app` contains `NSMicrophoneUsageDescription`. macOS may prompt on the first recording. The app has no network client and does not save audio. Apple's `AssetInventory` may download the locale model once; SpeechTranscriber performs transcription on device.
+`YappingToAPiHelper.app` contains `NSMicrophoneUsageDescription`. macOS may prompt on the first recording. Capture follows the current macOS default input device; listening state and doctor messages report its name without changing the system route. The app has no network client and does not save audio. Apple's `AssetInventory` may download the locale model once; SpeechTranscriber performs transcription on device.
 
 ## Configuration
 

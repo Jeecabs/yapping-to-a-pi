@@ -9,7 +9,7 @@ export const HELPER_STATES = [
 export type HelperState = (typeof HELPER_STATES)[number];
 
 export type HelperMessage =
-  | { type: "state"; state: HelperState; locale: string }
+  | { type: "state"; state: HelperState; locale: string; inputDevice?: string }
   | { type: "partial"; text: string }
   | { type: "final"; text: string }
   | { type: "error"; code: string; message: string };
@@ -21,6 +21,7 @@ export interface DoctorMessage {
   supported: boolean;
   installed: boolean;
   microphone: "authorized" | "denied" | "not-determined" | "restricted" | "unknown";
+  inputDevice: string;
   osVersion: string;
 }
 
@@ -38,7 +39,8 @@ export function parseHelperMessage(line: string): HelperMessage {
   if (type === "state") {
     const state = readString(value, "state");
     if (!isHelperState(state)) throw new HelperProtocolError(`Unknown helper state: ${state}`);
-    return { type, state, locale: readString(value, "locale") };
+    const inputDevice = readOptionalString(value, "inputDevice");
+    return { type, state, locale: readString(value, "locale"), ...(inputDevice ? { inputDevice } : {}) };
   }
 
   if (type === "partial" || type === "final") {
@@ -79,6 +81,7 @@ export function parseDoctorMessage(line: string): DoctorMessage {
     supported: readBoolean(value, "supported"),
     installed: readBoolean(value, "installed"),
     microphone,
+    inputDevice: readString(value, "inputDevice"),
     osVersion: readString(value, "osVersion"),
   };
 }
@@ -108,6 +111,11 @@ function readString(
     throw new HelperProtocolError(`Helper message field '${key}' must be a string`);
   }
   return field;
+}
+
+function readOptionalString(value: Record<string, unknown>, key: string): string | undefined {
+  if (value[key] === undefined) return undefined;
+  return readString(value, key);
 }
 
 function readBoolean(value: Record<string, unknown>, key: string): boolean {

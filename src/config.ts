@@ -176,9 +176,12 @@ export function isValidShortcut(value: string): value is KeyId {
 }
 
 export function shortcutVariants(shortcut: string): KeyId[] {
-  if (!isValidShortcut(shortcut)) return [];
-  const variant = caseVariant(parseShortcut(shortcut)!);
-  return variant ? [shortcut, variant] : [shortcut];
+  const parsed = parseShortcut(shortcut);
+  if (!parsed) return [];
+
+  const canonical = formatShortcut(parsed);
+  const variant = caseVariant(parsed);
+  return variant ? [canonical, variant] : [canonical];
 }
 
 export function shortcutWarning(shortcut: string): string | undefined {
@@ -296,9 +299,12 @@ function caseVariant(parsed: { modifiers: string[]; key: string }): KeyId | unde
   if (!/^[a-z]$/.test(parsed.key)) return undefined;
   const modifiers = toggleShift(parsed.modifiers);
   if (modifiers.length === 0) return undefined;
-  const ordered = MODIFIER_ORDER.filter((modifier) => modifiers.includes(modifier));
-  const variant = `${ordered.join("+")}+${parsed.key}`;
-  return isValidShortcut(variant) ? variant : undefined;
+  return formatShortcut({ modifiers, key: parsed.key });
+}
+
+function formatShortcut(parsed: { modifiers: string[]; key: string }): KeyId {
+  const modifiers = MODIFIER_ORDER.filter((modifier) => parsed.modifiers.includes(modifier));
+  return `${modifiers.length > 0 ? `${modifiers.join("+")}+` : ""}${parsed.key}` as KeyId;
 }
 
 function toggleShift(modifiers: string[]): string[] {

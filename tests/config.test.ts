@@ -34,8 +34,8 @@ describe("shortcut configuration", () => {
 
   it("adds a shifted variant for case-insensitive modified letter shortcuts", () => {
     assert.deepEqual(shortcutVariants("ctrl+alt+d"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
-    assert.deepEqual(shortcutVariants("Ctrl+Alt+D"), ["Ctrl+Alt+D", "ctrl+shift+alt+d"]);
-    assert.deepEqual(shortcutVariants("ctrl+alt+shift+d"), ["ctrl+alt+shift+d", "ctrl+alt+d"]);
+    assert.deepEqual(shortcutVariants("Ctrl+Alt+D"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
+    assert.deepEqual(shortcutVariants("ctrl+alt+shift+d"), ["ctrl+shift+alt+d", "ctrl+alt+d"]);
     assert.deepEqual(shortcutVariants("shift+d"), ["shift+d"]);
     assert.deepEqual(shortcutVariants("f6"), ["f6"]);
   });
