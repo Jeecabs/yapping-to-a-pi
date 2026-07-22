@@ -46,7 +46,8 @@ const NAMED_KEYS = new Set([
   "right",
 ]);
 const SYMBOL_KEYS = new Set("`-=[]\\;',./!@#$%^&*()_+|~{}:<>?".split(""));
-const MODIFIERS = new Set(["ctrl", "shift", "alt", "super"]);
+const MODIFIER_ORDER = ["ctrl", "shift", "alt", "super"] as const;
+const MODIFIERS: ReadonlySet<string> = new Set(MODIFIER_ORDER);
 const STATIC_SHORTCUT_COLLISIONS: Record<string, string> = {
   enter: "submits the editor",
   escape: "interrupts Pi",
@@ -174,30 +175,24 @@ export function isValidShortcut(value: string): value is KeyId {
   return parseShortcut(value) !== undefined;
 }
 
+export function shortcutVariants(shortcut: string): KeyId[] {
+  if (!isValidShortcut(shortcut)) return [];
+  const variant = caseVariant(parseShortcut(shortcut)!);
+  return variant ? [shortcut, variant] : [shortcut];
+}
+
 export function shortcutWarning(shortcut: string): string | undefined {
   const parsed = parseShortcut(shortcut);
   if (!parsed) return undefined;
-  const normalized = shortcut.trim().toLowerCase();
-  const staticMeaning = STATIC_SHORTCUT_COLLISIONS[normalized];
-  if (staticMeaning) return `${shortcut} already ${staticMeaning}. Choose a different shortcut.`;
+  const variants = shortcutVariants(shortcut);
+  const staticCollision = findStaticShortcutCollision(variants);
+  if (staticCollision) return staticCollision;
 
   if (parsed.modifiers.length === 0 && isPrintableKey(parsed.key)) {
     return `${shortcut} would trigger while typing. Choose a modified or function key.`;
   }
 
-  try {
-    const resolved = getKeybindings().getResolvedBindings();
-    for (const [action, keys] of Object.entries(resolved)) {
-      const assigned = (Array.isArray(keys) ? keys : keys ? [keys] : []).map((key) => key.toLowerCase());
-      if (assigned.includes(normalized)) {
-        return `${shortcut} is already assigned to ${action}. Choose a different shortcut.`;
-      }
-    }
-  } catch {
-    // Static collision protection remains available outside an initialized Pi TUI.
-  }
-
-  return undefined;
+  return findResolvedShortcutCollision(variants);
 }
 
 export function isValidLocale(value: string): boolean {
@@ -295,6 +290,58 @@ function parseShortcut(value: string): { modifiers: string[]; key: string } | un
   if (modifiers.length > 4 || new Set(modifiers).size !== modifiers.length) return undefined;
   if (!modifiers.every((modifier) => MODIFIERS.has(modifier))) return undefined;
   return { modifiers, key };
+}
+
+function caseVariant(parsed: { modifiers: string[]; key: string }): KeyId | undefined {
+  if (!/^[a-z]$/.test(parsed.key)) return undefined;
+  const modifiers = toggleShift(parsed.modifiers);
+  if (modifiers.length === 0) return undefined;
+  const ordered = MODIFIER_ORDER.filter((modifier) => modifiers.includes(modifier));
+  const variant = `${ordered.join("+")}+${parsed.key}`;
+  return isValidShortcut(variant) ? variant : undefined;
+}
+
+function toggleShift(modifiers: string[]): string[] {
+  if (modifiers.includes("shift")) return modifiers.filter((modifier) => modifier !== "shift");
+  return [...modifiers, "shift"];
+}
+
+function findStaticShortcutCollision(variants: KeyId[]): string | undefined {
+  for (const variant of variants) {
+    const meaning = STATIC_SHORTCUT_COLLISIONS[variant.toLowerCase()];
+    if (meaning) return `${variant} already ${meaning}. Choose a different shortcut.`;
+  }
+  return undefined;
+}
+
+function findResolvedShortcutCollision(variants: KeyId[]): string | undefined {
+  try {
+    const resolved = getKeybindings().getResolvedBindings();
+    for (const [action, keys] of Object.entries(resolved)) {
+      const collision = findEquivalentShortcut(variants, toShortcutArray(keys));
+      if (collision) return `${collision} is already assigned to ${action}. Choose a different shortcut.`;
+    }
+  } catch {
+    // Static collision protection remains available outside an initialized Pi TUI.
+  }
+  return undefined;
+}
+
+function toShortcutArray(value: string | string[] | undefined): string[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+function findEquivalentShortcut(variants: KeyId[], assigned: string[]): KeyId | undefined {
+  const assignedIdentities = new Set(assigned.map(shortcutIdentity));
+  return variants.find((variant) => assignedIdentities.has(shortcutIdentity(variant)));
+}
+
+function shortcutIdentity(value: string): string | undefined {
+  const parsed = parseShortcut(value);
+  if (!parsed) return undefined;
+  const modifiers = MODIFIER_ORDER.filter((modifier) => parsed.modifiers.includes(modifier));
+  return [...modifiers, parsed.key].join("+");
 }
 
 function isKey(value: string): boolean {

@@ -64,12 +64,12 @@ Default shortcut:
 Ctrl-Option-D
 ```
 
-- First press: prepare and listen.
+- First press: prepare and listen. Letter shortcuts ignore case, so `Ctrl-Option-D` also works with Shift or Caps Lock.
 - Second press while listening: finalize and insert text.
 - Second press while preparing: cancel; no transcript is inserted.
 - Edit the text normally, then submit it yourself.
 
-The UI stays quiet while idle. While active, the footer shows only a small `mic` indicator.
+The UI stays quiet while idle. While active, the footer shows a small `mic` indicator and a compact widget above the editor shows preparation, listening, and finalization. Partial recognition streams into that widget; the finalized transcript is still inserted once at the editor cursor so dictation never overwrites edits in progress.
 
 ## Settings TUI
 
@@ -93,7 +93,7 @@ Shortcut and locale changes are saved to:
 ~/.pi/agent/yapping-to-a-pi.json
 ```
 
-Pi reloads the extension after a saved change. Reserved Pi/editor shortcuts are rejected. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
+Pi reloads the extension after a saved change. Modified letter shortcuts register shifted and unshifted variants for case-insensitive activation; both variants are checked for reserved Pi/editor collisions. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
 
 Environment variables override saved settings for one shell/session:
 
