@@ -87,8 +87,8 @@ export async function loadDictationConfig(options: {
   if (storedShortcut) {
     const warning = shortcutProblem(storedShortcut);
     if (warning) warnings.push(`Ignored saved shortcut '${storedShortcut}': ${warning}`);
-    else if (isValidShortcut(storedShortcut)) {
-      shortcut = storedShortcut;
+    else {
+      shortcut = canonicalizeShortcut(storedShortcut)!;
       shortcutSource = "file";
     }
   }
@@ -96,8 +96,8 @@ export async function loadDictationConfig(options: {
   if (envShortcut) {
     const warning = shortcutProblem(envShortcut);
     if (warning) warnings.push(`Ignored PI_DICTATION_SHORTCUT='${envShortcut}': ${warning}`);
-    else if (isValidShortcut(envShortcut)) {
-      shortcut = envShortcut;
+    else {
+      shortcut = canonicalizeShortcut(envShortcut)!;
       shortcutSource = "environment";
     }
   }
@@ -145,7 +145,9 @@ export async function saveDictationConfig(
   const next: StoredConfig = {};
 
   const existingShortcut = cleanOptionalString(stored.shortcut);
-  if (existingShortcut && !shortcutProblem(existingShortcut)) next.shortcut = existingShortcut;
+  if (existingShortcut && !shortcutProblem(existingShortcut)) {
+    next.shortcut = canonicalizeShortcut(existingShortcut);
+  }
   const existingLocale = cleanOptionalString(stored.locale);
   const canonicalExistingLocale = existingLocale ? canonicalizeLocale(existingLocale) : undefined;
   if (canonicalExistingLocale) next.locale = canonicalExistingLocale;
@@ -153,7 +155,7 @@ export async function saveDictationConfig(
   if (patch.shortcut !== undefined) {
     const warning = shortcutProblem(patch.shortcut);
     if (warning) throw new Error(`Invalid dictation shortcut '${patch.shortcut}': ${warning}`);
-    next.shortcut = patch.shortcut.trim();
+    next.shortcut = canonicalizeShortcut(patch.shortcut)!;
   }
   if (patch.locale !== undefined) {
     const canonical = canonicalizeLocale(patch.locale);
@@ -175,13 +177,19 @@ export function isValidShortcut(value: string): value is KeyId {
   return parseShortcut(value) !== undefined;
 }
 
+export function canonicalizeShortcut(value: string): KeyId | undefined {
+  const parsed = parseShortcut(value);
+  return parsed ? formatShortcut(normalizeLetterCase(parsed)) : undefined;
+}
+
 export function shortcutVariants(shortcut: string): KeyId[] {
   const parsed = parseShortcut(shortcut);
   if (!parsed) return [];
 
-  const canonical = formatShortcut(parsed);
-  const variant = caseVariant(parsed);
-  return variant ? [canonical, variant] : [canonical];
+  const canonical = normalizeLetterCase(parsed);
+  const base = formatShortcut(canonical);
+  const variant = caseVariant(canonical);
+  return variant ? [base, variant] : [base];
 }
 
 export function shortcutWarning(shortcut: string): string | undefined {
@@ -193,6 +201,9 @@ export function shortcutWarning(shortcut: string): string | undefined {
 
   if (parsed.modifiers.length === 0 && isPrintableKey(parsed.key)) {
     return `${shortcut} would trigger while typing. Choose a modified or function key.`;
+  }
+  if (/^[a-z]$/.test(parsed.key) && parsed.modifiers.every((modifier) => modifier === "shift")) {
+    return `${shortcut} cannot be case-insensitive without triggering while typing. Add ctrl, alt, or super.`;
   }
 
   return findResolvedShortcutCollision(variants);
@@ -293,6 +304,12 @@ function parseShortcut(value: string): { modifiers: string[]; key: string } | un
   if (modifiers.length > 4 || new Set(modifiers).size !== modifiers.length) return undefined;
   if (!modifiers.every((modifier) => MODIFIERS.has(modifier))) return undefined;
   return { modifiers, key };
+}
+
+function normalizeLetterCase(parsed: { modifiers: string[]; key: string }): { modifiers: string[]; key: string } {
+  if (!/^[a-z]$/.test(parsed.key)) return parsed;
+  const nonShiftModifiers = parsed.modifiers.filter((modifier) => modifier !== "shift");
+  return nonShiftModifiers.length > 0 ? { modifiers: nonShiftModifiers, key: parsed.key } : parsed;
 }
 
 function caseVariant(parsed: { modifiers: string[]; key: string }): KeyId | undefined {

@@ -4,11 +4,20 @@ import type {
   ExtensionContext,
   Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
+import {
+  isKeyRelease,
+  isKeyRepeat,
+  matchesKey,
+  parseKey,
+  truncateToWidth,
+  wrapTextWithAnsi,
+  type TUI,
+} from "@earendil-works/pi-tui";
 import { fileURLToPath } from "node:url";
 
 import {
   canonicalizeLocale,
+  canonicalizeShortcut,
   loadDictationConfig,
   saveDictationConfig,
   shortcutVariants,
@@ -184,19 +193,14 @@ export default async function daDictation(pi: ExtensionAPI) {
         continue;
       }
       if (choice === shortcutRow) {
-        const value = await ctx.ui.input("shortcut", config.shortcut);
-        if (!value) continue;
         if (config.shortcutSource === "environment") {
           ctx.ui.notify("Unset PI_DICTATION_SHORTCUT before saving a shortcut here.", "warning");
           continue;
         }
-        const warning = shortcutWarning(value);
-        if (!isValidShortcut(value) || warning) {
-          ctx.ui.notify(warning ?? "Use a key such as ctrl+alt+d or f6.", "warning");
-          continue;
-        }
+        const value = await captureShortcut(ctx, config.shortcut);
+        if (!value) continue;
         await saveDictationConfig({ shortcut: value });
-        config = { ...config, shortcut: value, shortcutSource: "file" };
+        config = { ...config, shortcut: canonicalizeShortcut(value)!, shortcutSource: "file" };
         reloadNeeded = true;
         continue;
       }
@@ -261,6 +265,78 @@ export default async function daDictation(pi: ExtensionAPI) {
   }
 }
 
+export async function captureShortcut(
+  ctx: ExtensionCommandContext,
+  currentShortcut: string,
+): Promise<string | undefined> {
+  if (ctx.mode !== "tui") return undefined;
+  return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) =>
+    new ShortcutRecorder(tui, theme, currentShortcut, done),
+  );
+}
+
+class ShortcutRecorder {
+  private problem: string | undefined;
+  private readonly tui: TUI;
+  private readonly theme: Theme;
+  private readonly currentShortcut: string;
+  private readonly done: (shortcut: string | undefined) => void;
+
+  constructor(
+    tui: TUI,
+    theme: Theme,
+    currentShortcut: string,
+    done: (shortcut: string | undefined) => void,
+  ) {
+    this.tui = tui;
+    this.theme = theme;
+    this.currentShortcut = currentShortcut;
+    this.done = done;
+  }
+
+  handleInput(data: string): void {
+    if (isKeyRelease(data) || isKeyRepeat(data)) return;
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+      this.done(undefined);
+      return;
+    }
+
+    const parsed = parseKey(data);
+    const shortcut = parsed ? canonicalizeShortcut(parsed) : undefined;
+    if (!shortcut || !isValidShortcut(shortcut)) {
+      this.problem = "That key could not be identified. Try another combination.";
+      this.tui.requestRender();
+      return;
+    }
+
+    const warning = shortcutWarning(shortcut);
+    if (warning) {
+      this.problem = warning;
+      this.tui.requestRender();
+      return;
+    }
+
+    this.done(shortcut);
+  }
+
+  render(width: number): string[] {
+    const lines = [
+      this.theme.fg("accent", this.theme.bold("Set dictation shortcut")),
+      `Press the shortcut now. Current: ${currentShortcutLabel(this.currentShortcut)}`,
+      this.problem
+        ? this.theme.fg("warning", this.problem)
+        : this.theme.fg("dim", "Esc or Ctrl+C cancels"),
+    ];
+    return lines.map((line) => truncateToWidth(line, width, ""));
+  }
+
+  invalidate(): void {}
+}
+
+function currentShortcutLabel(shortcut: string): string {
+  return canonicalizeShortcut(shortcut) ?? shortcut;
+}
+
 function renderStatus(
   ctx: ExtensionContext,
   snapshot: DictationSnapshot,
@@ -298,12 +374,12 @@ class DictationFeedbackWidget {
   private frame = 0;
   private snapshot: DictationSnapshot;
   private readonly timer: ReturnType<typeof setInterval>;
+  private readonly tui: TUI;
+  private readonly theme: Theme;
 
-  constructor(
-    private readonly tui: TUI,
-    private readonly theme: Theme,
-    snapshot: DictationSnapshot,
-  ) {
+  constructor(tui: TUI, theme: Theme, snapshot: DictationSnapshot) {
+    this.tui = tui;
+    this.theme = theme;
     this.snapshot = snapshot;
     this.timer = setInterval(() => {
       this.frame = (this.frame + 1) % 4;

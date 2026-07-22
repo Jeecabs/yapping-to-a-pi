@@ -84,7 +84,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 
 ## Configuration
 
-`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving. Modified letter shortcuts register both shifted and unshifted variants so activation is case-insensitive. Shortcut validation rejects effective Pi/editor collisions across both variants. Malformed files are quarantined and invalid environment overrides fall back safely with a warning.
+`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Its shortcut recorder parses one raw TUI keypress through Pi's keyboard parser instead of asking the user to type key syntax. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving. Modified letter shortcuts are canonicalized without Shift and register both shifted and unshifted variants so activation is case-insensitive. Shortcut validation rejects effective Pi/editor collisions across both variants and rejects shift-only letters, which cannot be made case-insensitive without intercepting normal typing. Malformed files are quarantined and invalid environment overrides fall back safely with a warning.
 
 Environment overrides:
 
