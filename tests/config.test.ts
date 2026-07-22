@@ -9,6 +9,7 @@ import {
   isValidShortcut,
   loadDictationConfig,
   saveDictationConfig,
+  shortcutVariants,
   shortcutWarning,
 } from "../src/config.ts";
 
@@ -31,8 +32,17 @@ describe("shortcut configuration", () => {
     assert.equal(isValidShortcut("ctrl++d"), false);
   });
 
+  it("adds a shifted variant for case-insensitive modified letter shortcuts", () => {
+    assert.deepEqual(shortcutVariants("ctrl+alt+d"), ["ctrl+alt+d", "ctrl+shift+alt+d"]);
+    assert.deepEqual(shortcutVariants("Ctrl+Alt+D"), ["Ctrl+Alt+D", "ctrl+shift+alt+d"]);
+    assert.deepEqual(shortcutVariants("ctrl+alt+shift+d"), ["ctrl+alt+shift+d", "ctrl+alt+d"]);
+    assert.deepEqual(shortcutVariants("shift+d"), ["shift+d"]);
+    assert.deepEqual(shortcutVariants("f6"), ["f6"]);
+  });
+
   it("warns about reserved Pi bindings and unmodified text keys", () => {
     assert.match(shortcutWarning("ctrl+d") ?? "", /exits Pi/);
+    assert.match(shortcutWarning("ctrl+shift+d") ?? "", /exits Pi/);
     assert.match(shortcutWarning("shift+tab") ?? "", /already/);
     assert.match(shortcutWarning("ctrl+p") ?? "", /already/);
     assert.match(shortcutWarning("d") ?? "", /typing/);

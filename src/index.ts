@@ -2,13 +2,16 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
   ExtensionContext,
+  Theme,
 } from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, wrapTextWithAnsi, type TUI } from "@earendil-works/pi-tui";
 import { fileURLToPath } from "node:url";
 
 import {
   canonicalizeLocale,
   loadDictationConfig,
   saveDictationConfig,
+  shortcutVariants,
   shortcutWarning,
   isValidShortcut,
   isValidLocale,
@@ -17,6 +20,8 @@ import { DictationController, type DictationSnapshot } from "./controller.ts";
 import { assertHelperExists, runHelperDoctor, startNativeHelper } from "./helper-process.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 
+const STATUS_ID = "yapping-to-a-pi";
+const FEEDBACK_WIDGET_ID = "yapping-to-a-pi-feedback";
 const DEFAULT_HELPER_PATH = fileURLToPath(
   new URL("../native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper", import.meta.url),
 );
@@ -28,6 +33,7 @@ export default async function daDictation(pi: ExtensionAPI) {
   let notifiedError: string | undefined;
   let configWarningsShown = false;
   let startPending = false;
+  let feedbackWidget: DictationFeedbackWidget | undefined;
   const lifecycle = new SessionLifecycle();
 
   const controller = new DictationController({
@@ -35,7 +41,7 @@ export default async function daDictation(pi: ExtensionAPI) {
     onStateChange(snapshot) {
       const ctx = activeContext;
       if (!ctx?.hasUI) return;
-      renderStatus(ctx, snapshot);
+      feedbackWidget = renderStatus(ctx, snapshot, feedbackWidget);
       if (snapshot.phase === "failed" && snapshot.error && snapshot.error !== notifiedError) {
         notifiedError = snapshot.error;
         ctx.ui.notify(snapshot.error, "error");
@@ -76,7 +82,7 @@ export default async function daDictation(pi: ExtensionAPI) {
     lifecycle.activate();
     activeContext = ctx;
     acceptTranscript = true;
-    renderStatus(ctx, controller.snapshot());
+    feedbackWidget = renderStatus(ctx, controller.snapshot(), feedbackWidget);
     if (!configWarningsShown) {
       for (const warning of config.warnings) ctx.ui.notify(warning, "warning");
       configWarningsShown = true;
@@ -90,10 +96,12 @@ export default async function daDictation(pi: ExtensionAPI) {
     activeContext = undefined;
   });
 
-  pi.registerShortcut(config.shortcut, {
-    description: "Toggle on-device dictation",
-    handler: toggle,
-  });
+  for (const shortcut of shortcutVariants(config.shortcut)) {
+    pi.registerShortcut(shortcut, {
+      description: "Toggle on-device dictation",
+      handler: toggle,
+    });
+  }
 
   pi.registerCommand("dictation", {
     description: "Toggle or configure on-device dictation",
@@ -253,20 +261,92 @@ export default async function daDictation(pi: ExtensionAPI) {
   }
 }
 
-function renderStatus(ctx: ExtensionContext, snapshot: DictationSnapshot): void {
+function renderStatus(
+  ctx: ExtensionContext,
+  snapshot: DictationSnapshot,
+  widget: DictationFeedbackWidget | undefined,
+): DictationFeedbackWidget | undefined {
   if (snapshot.phase === "idle" || snapshot.phase === "failed") {
-    ctx.ui.setStatus("yapping-to-a-pi", undefined);
-    return;
+    ctx.ui.setStatus(STATUS_ID, undefined);
+    ctx.ui.setWidget(FEEDBACK_WIDGET_ID, undefined);
+    return undefined;
   }
 
   const theme = ctx.ui.theme;
   if (snapshot.phase === "listening") {
-    ctx.ui.setStatus("yapping-to-a-pi", `${theme.fg("success", "●")} ${theme.fg("muted", "mic")}`);
-    return;
+    ctx.ui.setStatus(STATUS_ID, `${theme.fg("success", "●")} ${theme.fg("muted", "mic")}`);
+  } else {
+    const glyph = snapshot.phase === "stopping" ? "◌" : "◐";
+    ctx.ui.setStatus(STATUS_ID, `${theme.fg("dim", glyph)} ${theme.fg("dim", "mic")}`);
   }
 
-  const glyph = snapshot.phase === "stopping" ? "◌" : "◐";
-  ctx.ui.setStatus("yapping-to-a-pi", `${theme.fg("dim", glyph)} ${theme.fg("dim", "mic")}`);
+  if (ctx.mode !== "tui") return widget;
+  if (widget) {
+    widget.update(snapshot);
+    return widget;
+  }
+
+  let created!: DictationFeedbackWidget;
+  ctx.ui.setWidget(FEEDBACK_WIDGET_ID, (tui, widgetTheme) => {
+    created = new DictationFeedbackWidget(tui, widgetTheme, snapshot);
+    return created;
+  });
+  return created;
+}
+
+class DictationFeedbackWidget {
+  private frame = 0;
+  private snapshot: DictationSnapshot;
+  private readonly timer: ReturnType<typeof setInterval>;
+
+  constructor(
+    private readonly tui: TUI,
+    private readonly theme: Theme,
+    snapshot: DictationSnapshot,
+  ) {
+    this.snapshot = snapshot;
+    this.timer = setInterval(() => {
+      this.frame = (this.frame + 1) % 4;
+      this.tui.requestRender();
+    }, 220);
+    this.timer.unref?.();
+  }
+
+  update(snapshot: DictationSnapshot): void {
+    this.snapshot = snapshot;
+    this.tui.requestRender();
+  }
+
+  render(width: number): string[] {
+    const innerWidth = Math.max(1, width - 2);
+    const status = truncateToWidth(` ${this.renderState()}`, width, "");
+    const partial = this.snapshot.partialText?.trim().replace(/\s+/g, " ");
+    if (this.snapshot.phase !== "listening" || !partial) return [status];
+
+    const transcript = wrapTextWithAnsi(this.theme.fg("text", partial), innerWidth)
+      .slice(-2)
+      .map((line) => truncateToWidth(` ${line}`, width, ""));
+    return [status, ...transcript];
+  }
+
+  invalidate(): void {}
+
+  dispose(): void {
+    clearInterval(this.timer);
+  }
+
+  private renderState(): string {
+    if (this.snapshot.phase === "listening") {
+      const colors = ["dim", "muted", "success", "muted"] as const;
+      const pulse = this.theme.fg(colors[this.frame]!, "●");
+      const detail = this.snapshot.partialText?.trim() ? "live transcript" : "speak now";
+      return `${pulse} ${this.theme.fg("success", "listening")} ${this.theme.fg("dim", `· ${detail}`)}`;
+    }
+    if (this.snapshot.phase === "stopping") {
+      return `${this.theme.fg("dim", "◌")} ${this.theme.fg("muted", "finalizing transcript…")}`;
+    }
+    return `${this.theme.fg("dim", ["◐", "◓", "◑", "◒"][this.frame]!)} ${this.theme.fg("muted", "preparing microphone…")}`;
+  }
 }
 
 function formatStatus(snapshot: DictationSnapshot, config: Awaited<ReturnType<typeof loadDictationConfig>>): string {

@@ -54,6 +54,7 @@ describe("DictationController", () => {
     helper?.exit();
 
     assert.deepEqual(transcripts, ["Hello world."]);
+    assert.equal(states[2]?.partialText, "hello");
     assert.equal(controller.snapshot().phase, "idle");
     assert.deepEqual(states.map((state) => state.phase), ["preparing", "listening", "listening", "idle"]);
   });

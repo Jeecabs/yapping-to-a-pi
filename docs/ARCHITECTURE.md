@@ -38,7 +38,7 @@ snapshot(): DictationSnapshot
 dispose(): Promise<void>
 ```
 
-The implementation hides helper creation, monotonic state transitions, final transcript deduplication, SIGTERM/SIGKILL escalation, bounded disposal, process exit behavior, and cleanup. Generation tokens reject callbacks from detached helper sessions. The extension supplies callbacks for state changes and one finalized transcript.
+The implementation hides helper creation, monotonic state transitions, partial transcript state, final transcript deduplication, SIGTERM/SIGKILL escalation, bounded disposal, process exit behavior, and cleanup. Generation tokens reject callbacks from detached helper sessions. The extension supplies callbacks for state changes and one finalized transcript.
 
 ### Native helper
 
@@ -74,7 +74,8 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 - The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
 - Unexpected audio or recognition task completion fails the session immediately.
 - The controller accepts at most one final transcript per recording and ignores late state regressions.
-- Pi pastes that transcript at the editor cursor without submitting it.
+- Pi streams partial text into a compact feedback widget without mutating the editor.
+- Pi pastes the finalized transcript at the editor cursor without submitting it. Keeping volatile recognition outside the editor avoids overwriting concurrent human edits or requiring unsupported cursor-range replacement.
 - `session_shutdown` invalidates pending async starts, requests stop, escalates from SIGTERM to SIGKILL, and returns within a fixed deadline.
 
 ## Permissions and privacy
@@ -83,7 +84,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 
 ## Configuration
 
-`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving. Shortcut validation rejects effective Pi/editor collisions. Malformed files are quarantined and invalid environment overrides fall back safely with a warning.
+`/dictation settings` edits the persistent file at `~/.pi/agent/yapping-to-a-pi.json`. Direct `/dictation shortcut …` and `/dictation locale …` commands use the same file and reload the extension after saving. Modified letter shortcuts register both shifted and unshifted variants so activation is case-insensitive. Shortcut validation rejects effective Pi/editor collisions across both variants. Malformed files are quarantined and invalid environment overrides fall back safely with a warning.
 
 Environment overrides:
 
