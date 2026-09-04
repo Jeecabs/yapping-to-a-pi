@@ -3,7 +3,7 @@
 ## Runtime flow
 
 ```txt
-Ctrl-Option-D or /dictation
+Mic button, F6, or /dictation
         │
         ▼
 Pi extension (`src/index.ts`)
@@ -74,7 +74,12 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 - The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
 - Unexpected audio or recognition task completion fails the session immediately.
 - The controller accepts at most one final transcript per recording and ignores late state regressions.
-- Pi streams partial text into a compact feedback widget without mutating the editor. The live chrome shows only a quiet phase label; input-device detail remains available through status and diagnostics.
+- Input-device detail remains available through status and diagnostics.
+- `src/dictation-widget.ts` renders the mic button and partial text without changing the editor. Pi 0.85.0 supplies component-local mouse coordinates.
+- Fullscreen mode shows a static idle button. Regular mode hides it because the terminal owns mouse input.
+- Button clicks call the same toggle handler as the shortcut. The button never requests keyboard focus. Finalization disables it.
+- Modified clicks, repeated clicks in a double-click, and clicks outside the button do not toggle recording.
+- The widget has no timer. Shutdown disposes it and clears the UI before the controller stops.
 - Pi pastes the finalized transcript at the editor cursor without submitting it. Keeping volatile recognition outside the editor avoids overwriting concurrent human edits or requiring unsupported cursor-range replacement.
 - `session_shutdown` invalidates pending async starts, requests stop, escalates from SIGTERM to SIGKILL, and returns within a fixed deadline.
 
@@ -88,7 +93,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 
 Environment overrides:
 
-- `PI_DICTATION_SHORTCUT` — Pi-local shortcut, default `ctrl+alt+d`.
+- `PI_DICTATION_SHORTCUT`: Pi-local shortcut, default `f6`. Saved shortcuts keep precedence over the default.
 - `PI_DICTATION_LOCALE` — BCP-47 locale, default `en-AU`.
 - `PI_DICTATION_HELPER` — absolute helper executable override for development.
 

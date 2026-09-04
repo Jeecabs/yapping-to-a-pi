@@ -45,7 +45,13 @@ describe("dictation shortcut UX", () => {
     const ctx = {
       mode: "tui",
       ui: {
-        select: async () => selectCount++ === 0 ? "shortcut  ctrl+alt+d" : "close",
+        select: async (_title: string, choices: string[]) => {
+          if (selectCount++ !== 0) return "close";
+          const shortcutRows = choices.filter((choice) => choice.startsWith("shortcut  "));
+          assert.equal(shortcutRows.length, 1);
+          const [shortcutRow] = shortcutRows;
+          return shortcutRow;
+        },
         input: async () => {
           inputCount++;
           return undefined;
@@ -95,7 +101,13 @@ describe("dictation shortcut UX", () => {
     }
   });
 
-  it("registers one logical letter shortcut for lower-case, Shift, and Caps Lock input", async () => {
+  it("registers one logical letter shortcut for lower-case, Shift, and Caps Lock input", async (t) => {
+    const previousShortcut = process.env.PI_DICTATION_SHORTCUT;
+    process.env.PI_DICTATION_SHORTCUT = "ctrl+alt+d";
+    t.after(() => {
+      if (previousShortcut === undefined) delete process.env.PI_DICTATION_SHORTCUT;
+      else process.env.PI_DICTATION_SHORTCUT = previousShortcut;
+    });
     const { shortcuts } = await loadExtension();
     const keys = shortcuts.map(({ key }) => key);
     assert.deepEqual(keys, ["ctrl+alt+d", "ctrl+shift+alt+d"]);

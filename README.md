@@ -9,7 +9,7 @@ Press the shortcut once to listen and again to finish. The transcript is pasted 
 - macOS 26 or newer
 - a locale supported by Apple's `SpeechTranscriber`
 - Xcode Command Line Tools / Swift 6.2 with the Xcode license accepted
-- Pi interactive TUI
+- Pi 0.85.0 or newer in interactive TUI mode
 
 Runtime and install checks accept macOS 26 and all newer major versions. Unsupported hosts receive an actionable version message instead of a generic missing-helper error.
 
@@ -58,20 +58,39 @@ pi install https://github.com/Jeecabs/yapping-to-a-pi
 
 ## Use
 
-Default shortcut:
+### Click the mic button
 
-```text
-Ctrl-Option-D
+Start Pi in fullscreen mode:
+
+```bash
+pi --tui-mode fullscreen
 ```
 
-- First press: prepare and listen. Letter shortcuts ignore case, so `Ctrl-Option-D` also works with Shift or Caps Lock.
-- Second press while listening: finalize and insert text.
-- Second press while preparing: cancel; no transcript is inserted.
-- Edit the text normally, then submit it yourself.
+1. Click **[ ● Dictate ]** above the editor to listen.
+2. Click **[ ■ Stop mic ]** to stop and insert the transcript.
+3. Edit the text, then submit it yourself.
 
-The UI stays quiet while idle. While active, the footer shows a small `mic` indicator and a compact widget above the editor shows only the current phase and any partial transcript. The finalized transcript is inserted once at the editor cursor so dictation never overwrites edits in progress.
+During preparation, the button changes to **[ Cancel mic ]**. Canceling inserts no text. During finalization, the button is disabled.
 
-Dictation follows the current macOS default input device. If AirPods or another microphone are selected but provide silence, macOS may not switch automatically; choose the intended input in Control Center → Sound. `/dictation status` identifies the device used by an active recording, and `/dictation doctor` identifies the current default input.
+The button keeps keyboard focus in the editor. Partial text appears below the button without changing your draft. Pi inserts the final transcript once at the editor cursor.
+
+The idle button is static, with no timer or microphone activity. Regular terminal mode hides the idle button because Pi does not capture mouse clicks in that mode.
+
+### Keyboard shortcut
+
+The default is **F6**. Press once to listen and again to stop and insert. During preparation, a second press cancels.
+
+On a Mac, you may need **Fn-F6** if the top row controls system features. To use F6 alone, enable standard function keys in macOS keyboard settings.
+
+Saved shortcuts and environment overrides stay unchanged. To replace an existing three-key shortcut:
+
+```text
+/dictation shortcut f6
+```
+
+Modified letter shortcuts still ignore Shift and Caps Lock. The active widget shows your configured shortcut.
+
+Dictation follows the current macOS default input device. If AirPods or another microphone provide silence, choose the intended input in Control Center → Sound. `/dictation status` identifies the device used by an active recording. `/dictation doctor` identifies the current default input.
 
 ## Settings TUI
 
