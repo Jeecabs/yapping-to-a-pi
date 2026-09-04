@@ -23,7 +23,7 @@ interface StoredConfigRead {
   warning?: string;
 }
 
-const DEFAULT_SHORTCUT: KeyId = "ctrl+alt+d";
+const DEFAULT_SHORTCUT: KeyId = "f6";
 const DEFAULT_LOCALE = "en-AU";
 const NAMED_KEYS = new Set([
   "escape",
@@ -217,7 +217,10 @@ export function canonicalizeLocale(value: string): string | undefined {
   const candidate = value.trim();
   if (!candidate) return undefined;
   try {
-    return Intl.getCanonicalLocales(candidate)[0];
+    const locales = Intl.getCanonicalLocales(candidate);
+    if (locales.length !== 1) return undefined;
+    const [locale] = locales;
+    return locale;
   } catch {
     return undefined;
   }

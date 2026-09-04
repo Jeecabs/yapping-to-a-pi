@@ -90,7 +90,7 @@ describe("locale configuration", () => {
 
     const config = await loadDictationConfig({ env: {}, home, defaultHelperPath: "/helper" });
 
-    assert.equal(config.shortcut, "ctrl+alt+d");
+    assert.equal(config.shortcut, "f6");
     assert.equal(config.locale, "en-AU");
     assert.match(config.warnings.join("\n"), /invalid configuration/i);
     const files = await readdir(join(home, ".pi", "agent"));
@@ -105,7 +105,7 @@ describe("locale configuration", () => {
       defaultHelperPath: "/helper",
     });
 
-    assert.equal(config.shortcut, "ctrl+alt+d");
+    assert.equal(config.shortcut, "f6");
     assert.equal(config.locale, "en-AU");
     assert.equal(config.warnings.length, 2);
   });
