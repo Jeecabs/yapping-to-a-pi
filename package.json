@@ -4,7 +4,11 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.2",
-  "description": "Private Pi package for hotkey-triggered, on-device macOS dictation — yapping to a pi.",
+  "description": "On-device voice dictation for Pi on macOS.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jeecabs/yapping-to-a-pi.git"
+  },
   "keywords": [
     "pi-package",
     "dictation",
