@@ -2,7 +2,7 @@
 
 ## Product direction
 
-**yapping to a pi** is a private Pi input extension for Lachlan's Mac. It turns speech into editable prompt text without sending the prompt automatically.
+**yapping to a pi** is a Pi input extension for macOS. It turns speech into editable prompt text without sending the prompt automatically.
 
 Core behavior:
 

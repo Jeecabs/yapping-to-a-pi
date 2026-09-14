@@ -94,7 +94,7 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 Environment overrides:
 
 - `PI_DICTATION_SHORTCUT`: Pi-local shortcut, default `f6`. Saved shortcuts keep precedence over the default.
-- `PI_DICTATION_LOCALE` — BCP-47 locale, default `en-AU`.
-- `PI_DICTATION_HELPER` — absolute helper executable override for development.
+- `PI_DICTATION_LOCALE`: BCP-47 locale, default `en-AU`.
+- `PI_DICTATION_HELPER`: absolute helper executable override for development.
 
 Configuration is read when Pi loads the extension. Native installation preflights macOS 26+ and Apple Swift 6.2+, accepting all future major versions rather than matching version 26 exactly. Postinstall skips the helper build without disabling the extension when requirements are unmet; explicit development builds still fail. This leaves commands and shortcuts available to explain the requirement. Supported native builds are staged, signed, verified, and swapped into place only after success so a failed rebuild preserves the previous helper.

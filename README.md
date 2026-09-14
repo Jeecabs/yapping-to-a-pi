@@ -1,106 +1,46 @@
 # yapping to a pi
 
-Private [Pi](https://github.com/badlogic/pi-mono) package for hotkey-triggered, on-device dictation on macOS.
+On-device voice dictation for [Pi](https://github.com/badlogic/pi-mono) on macOS.
 
-Press the shortcut once to listen and again to finish. The transcript is pasted at the Pi editor cursor and stays editable. It is never submitted automatically.
+Press **F6** to listen, then press it again to insert the transcript at your editor cursor. Edit before sending. Dictation never submits a prompt.
 
 ## Requirements
 
 - macOS 26 or newer
-- a locale supported by Apple's `SpeechTranscriber`
-- Xcode Command Line Tools / Swift 6.2 with the Xcode license accepted
-- Pi 0.85.0 or newer in interactive TUI mode
-
-Runtime and install checks accept macOS 26 and all newer major versions. Unsupported hosts receive an actionable version message instead of a generic missing-helper error.
+- Xcode Command Line Tools with Apple Swift 6.2 or newer and the Xcode license accepted
+- Node.js 22.19.0 or newer
+- Pi 0.85.0 or newer
+- A language supported by Apple's `SpeechTranscriber`
 
 ## Install
 
-The repository is private. Configure GitHub HTTPS credentials first if needed:
-
-```bash
-gh auth login
-gh auth setup-git
-```
-
-Then install it directly from GitHub:
-
 ```bash
 pi install https://github.com/Jeecabs/yapping-to-a-pi
 ```
 
-Git shorthand also works:
+Installation builds the native helper locally. If Pi is already open, run `/reload`.
 
-```bash
-pi install git:github.com/Jeecabs/yapping-to-a-pi
-```
-
-For local development:
-
-```bash
-git clone https://github.com/Jeecabs/yapping-to-a-pi.git
-cd yapping-to-a-pi
-pnpm install
-pi install .
-```
-
-On a supported host, installation builds `YappingToAPiHelper.app`. On an unsupported host, installation keeps the extension available but skips the helper build so dictation commands can explain the unmet requirement. Reload Pi if it is already open:
-
-```text
-/reload
-```
-
-If an interrupted update leaves the native helper missing on a supported Mac, reinstall cleanly:
-
-```bash
-pi remove https://github.com/Jeecabs/yapping-to-a-pi
-pi install https://github.com/Jeecabs/yapping-to-a-pi
-```
+On your first recording, macOS may ask for microphone access for **yapping to a pi**. Apple downloads the speech model if needed. Recognition then runs on device.
 
 ## Use
 
-### Click the mic button
+Press **F6** to start and stop dictation. On some Mac keyboards, use **Fn-F6**, or enable standard function keys in macOS settings. Press again during preparation to cancel without inserting text.
 
-Start Pi in fullscreen mode:
+For a clickable mic button, start Pi in fullscreen mode:
 
 ```bash
 pi --tui-mode fullscreen
 ```
 
-1. Click **[ ● Dictate ]** above the editor to listen.
-2. Click **[ ■ Stop mic ]** to stop and insert the transcript.
-3. Edit the text, then submit it yourself.
+Click **[ ● Dictate ]** to listen, then **[ ■ Stop mic ]** to insert the transcript. Partial text appears above the editor without changing your draft. The button keeps keyboard focus in the editor and is disabled while finalizing.
 
-During preparation, the button changes to **[ Cancel mic ]**. Canceling inserts no text. During finalization, the button is disabled.
+The idle button appears only in fullscreen mode. The microphone stays off until you start dictation.
 
-The button keeps keyboard focus in the editor. Partial text appears below the button without changing your draft. Pi inserts the final transcript once at the editor cursor.
+## Settings
 
-The idle button is static, with no timer or microphone activity. Regular terminal mode hides the idle button because Pi does not capture mouse clicks in that mode.
+Run `/dictation settings` to change the shortcut or language and run diagnostics. Select the shortcut and press your new key combination.
 
-### Keyboard shortcut
-
-The default is **F6**. Press once to listen and again to stop and insert. During preparation, a second press cancels.
-
-On a Mac, you may need **Fn-F6** if the top row controls system features. To use F6 alone, enable standard function keys in macOS keyboard settings.
-
-Saved shortcuts and environment overrides stay unchanged. To replace an existing three-key shortcut:
-
-```text
-/dictation shortcut f6
-```
-
-Modified letter shortcuts still ignore Shift and Caps Lock. The active widget shows your configured shortcut.
-
-Dictation follows the current macOS default input device. If AirPods or another microphone provide silence, choose the intended input in Control Center → Sound. `/dictation status` identifies the device used by an active recording. `/dictation doctor` identifies the current default input.
-
-## Settings TUI
-
-```text
-/dictation settings
-```
-
-The compact settings menu edits the shortcut and locale, and runs diagnostics. To change the shortcut, select it and press the new key combination once—there is no key-syntax string to type.
-
-Direct configuration also works:
+You can also configure these directly:
 
 ```text
 /dictation shortcut f6
@@ -108,85 +48,71 @@ Direct configuration also works:
 /dictation locale en-AU
 ```
 
-Shortcut and locale changes are saved to:
+Pi saves settings to `~/.pi/agent/yapping-to-a-pi.json` and reloads the extension after each change. Defaults are `f6` and `en-AU`.
 
-```text
-~/.pi/agent/yapping-to-a-pi.json
-```
+Modified letter shortcuts ignore Shift and Caps Lock. Pi rejects shortcuts that conflict with editor controls, including Shift-only letters.
 
-Pi reloads the extension after a saved change. Modified letter shortcuts are saved as one lowercase logical binding and register both shifted and unshifted variants, so Shift and Caps Lock do not change activation. Both variants are checked for reserved Pi/editor collisions. Shift-only letter shortcuts are rejected because making them case-insensitive would also intercept normal typing. If the settings file is malformed, it is quarantined and safe defaults load with a warning.
+Environment variables override saved settings for the current session:
 
-Environment variables override saved settings for one shell/session:
-
-- `PI_DICTATION_SHORTCUT`
-- `PI_DICTATION_LOCALE`
-- `PI_DICTATION_HELPER` — native executable override for development
-
-Invalid overrides are ignored with a warning rather than disabling the extension. If the helper is unavailable, `/dictation`, its shortcut, and `/dictation doctor` first report unsupported macOS versions clearly. On a supported macOS release, a missing helper message points to the Xcode/Swift 6.2 build requirement.
+| Variable | Purpose |
+| --- | --- |
+| `PI_DICTATION_SHORTCUT` | Shortcut binding |
+| `PI_DICTATION_LOCALE` | BCP-47 language tag, such as `en-AU` or `en` |
+| `PI_DICTATION_HELPER` | Native executable path for development |
 
 ## Commands
 
 | Command | Description |
 | --- | --- |
 | `/dictation` | Toggle listening |
-| `/dictation stop` | Stop or cancel the active session |
-| `/dictation status` | Show phase, active input device, shortcut, and locale |
-| `/dictation settings` | Open the configuration TUI |
-| `/dictation doctor` | Check input device, model, and microphone status |
-| `/dictation shortcut <keys>` | Save a new shortcut and reload |
-| `/dictation locale <locale>` | Save a BCP-47 locale and reload |
+| `/dictation stop` | Stop or cancel the active recording |
+| `/dictation status` | Show recording state, input device, shortcut, and language |
+| `/dictation settings` | Open settings |
+| `/dictation doctor` | Check input device, speech model, and microphone permission |
+| `/dictation shortcut <keys>` | Save a shortcut and reload |
+| `/dictation locale <locale>` | Save a language tag and reload |
 
-Language-only locales such as `en` are valid; the helper resolves them to Apple's supported equivalent and reports the selected locale in diagnostics.
+## Troubleshooting
 
-## First recording
+- **Microphone access denied:** Enable **yapping to a pi** in System Settings → Privacy & Security → Microphone.
+- **No speech detected:** Select your microphone in Control Center → Sound. Dictation uses the macOS default input device. Run `/dictation doctor` to check it.
+- **Helper missing:** Check that macOS and Swift meet the requirements, then reinstall:
 
-macOS may ask for microphone access for **yapping to a pi**. If access was denied, enable it in:
+  ```bash
+  pi remove https://github.com/Jeecabs/yapping-to-a-pi
+  pi install https://github.com/Jeecabs/yapping-to-a-pi
+  ```
 
-```text
-System Settings → Privacy & Security → Microphone
-```
-
-If a supported language model is not installed, Apple's `AssetInventory` downloads it once before listening. A stop request prevents later preparation phases, including microphone startup; the controller force-terminates a helper that does not cancel promptly.
+Local builds use ad-hoc signing. macOS may ask for microphone permission again after a helper update.
 
 ## Privacy
 
-- Audio goes directly from `AVAudioEngine` to Apple's on-device `SpeechAnalyzer`.
-- The extension never receives audio.
-- The helper has no network client and does not save recordings.
-- Apple may use the network only to download/update model assets through `AssetInventory`.
-- Dictated text is inserted into the Pi editor; it reaches the selected model only if you submit the prompt.
+- Apple's `SpeechAnalyzer` transcribes audio on device.
+- The extension receives text, never audio. The helper does not save recordings.
+- Model downloads and updates use Apple's `AssetInventory`. The helper has no network client.
+- Dictation stops when the Pi session shuts down.
+- The transcript reaches your selected AI model only when you submit the prompt.
 
-## Native signing
+## Development
 
-Local builds use an ad-hoc signature by default. macOS may ask for microphone permission again after a helper update, and quarantined copies are not intended for general distribution.
+```bash
+git clone https://github.com/Jeecabs/yapping-to-a-pi.git
+cd yapping-to-a-pi
+pnpm install
+pi install .
+pnpm run verify
+```
 
-A stable signing identity can be supplied locally:
+`verify` runs TypeScript checks, existing tests, the native build, and diagnostics without opening the microphone. Use `pnpm run doctor:native` for native diagnostics alone.
+
+To sign a local build with your own identity:
 
 ```bash
 YAPPING_TO_A_PI_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" pnpm run build:native
 ```
 
-Public distribution would additionally require hardened runtime signing and notarization.
+Distributing a prebuilt helper requires separate hardened runtime signing and notarization. The Git install builds from source.
 
-## Development
+See [Architecture](docs/ARCHITECTURE.md) for the controller, native helper, and protocol.
 
-```bash
-pnpm install
-pnpm run check
-pnpm run test
-pnpm run test:native
-pnpm run build:native
-pnpm run doctor:native
-```
-
-Or run everything:
-
-```bash
-pnpm run verify
-```
-
-Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-
-Research and primary sources: [`docs/research/macos-on-device-dictation-for-pi.md`](docs/research/macos-on-device-dictation-for-pi.md)
-
-The audio conversion implementation is adapted from Apple's WWDC25 SpeechAnalyzer sample under the license in [`native/APPLE-SAMPLE-LICENSE.txt`](native/APPLE-SAMPLE-LICENSE.txt).
+Audio conversion code is adapted from Apple's WWDC25 SpeechAnalyzer sample. Its license is in [`native/APPLE-SAMPLE-LICENSE.txt`](native/APPLE-SAMPLE-LICENSE.txt).
