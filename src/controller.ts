@@ -46,6 +46,8 @@ interface ExitWaiter {
   resolve(): void;
 }
 
+type Termination = "none" | "timed-out" | "cancelled";
+
 export class DictationController {
   private readonly startHelper: StartHelper;
   private readonly onStateChange?: (snapshot: DictationSnapshot) => void;
@@ -61,8 +63,10 @@ export class DictationController {
   private killTimer?: NodeJS.Timeout;
   private settleTimer?: NodeJS.Timeout;
   private finalReceived = false;
-  private forcedTermination = false;
+  private termination: Termination = "none";
   private hardKillSent = false;
+  private stoppedWhileListening = false;
+  private latestPartial?: string;
   private exitWaiters: ExitWaiter[] = [];
 
   constructor(options: DictationControllerOptions) {
@@ -71,7 +75,7 @@ export class DictationController {
     this.onTranscript = options.onTranscript;
     this.stopTimeoutMs = options.stopTimeoutMs ?? 4_000;
     this.killTimeoutMs = options.killTimeoutMs ?? 1_000;
-    this.disposeTimeoutMs = options.disposeTimeoutMs ?? this.stopTimeoutMs + this.killTimeoutMs + 1_000;
+    this.disposeTimeoutMs = options.disposeTimeoutMs ?? this.killTimeoutMs * 2 + 1_000;
   }
 
   snapshot(): DictationSnapshot {
@@ -87,8 +91,10 @@ export class DictationController {
     const generation = ++this.generation;
     this.activeGeneration = generation;
     this.finalReceived = false;
-    this.forcedTermination = false;
+    this.termination = "none";
     this.hardKillSent = false;
+    this.stoppedWhileListening = false;
+    this.latestPartial = undefined;
     this.transition({ phase: "preparing", locale: options.locale });
 
     try {
@@ -109,12 +115,14 @@ export class DictationController {
     return "started";
   }
 
-  stop(_reason: "toggle" | "command" | "shutdown"): boolean {
-    if (!this.session) return false;
+  stop(_reason: "toggle" | "command"): boolean {
+    const generation = this.activeGeneration;
+    if (!this.session || generation === undefined) return false;
     if (this.current.phase !== "stopping") {
+      this.stoppedWhileListening = this.current.phase === "listening";
       this.transition({ ...this.current, phase: "stopping", partialText: undefined });
+      this.armStopTimeout(generation);
       this.session.requestStop();
-      this.armStopTimeout();
     }
     return true;
   }
@@ -124,7 +132,12 @@ export class DictationController {
     if (!this.session || generation === undefined) return;
 
     const exited = new Promise<void>((resolve) => this.exitWaiters.push({ generation, resolve }));
-    this.stop("shutdown");
+    // Shutdown discards the transcript, so finalizing would only delay Pi's exit.
+    this.termination = "cancelled";
+    if (this.current.phase !== "stopping" && this.current.phase !== "failed") {
+      this.transition({ ...this.current, phase: "stopping", partialText: undefined });
+    }
+    this.terminate(generation);
 
     let disposeTimer: NodeJS.Timeout | undefined;
     const deadline = new Promise<void>((resolve) => {
@@ -151,11 +164,15 @@ export class DictationController {
         : message.state === "finalizing"
           ? "stopping"
           : "preparing";
-      this.transition({ phase, locale: message.locale, inputDevice: message.inputDevice });
+      // A listening update after an input-device change keeps the visible preview.
+      const partialText = phase === "listening" ? this.current.partialText : undefined;
+      this.transition({ phase, locale: message.locale, inputDevice: message.inputDevice, partialText });
       return;
     }
 
     if (message.type === "partial") {
+      // Finalization can still refine the preview after it stops being shown.
+      this.latestPartial = message.text;
       if (this.current.phase === "listening") {
         this.transition({ ...this.current, partialText: message.text });
       }
@@ -181,8 +198,13 @@ export class DictationController {
       return;
     }
 
-    if (exit.code === 0 || this.finalReceived || this.forcedTermination) {
+    if (exit.code === 0 || this.finalReceived) {
       this.detach(generation, { phase: "idle" });
+      return;
+    }
+
+    if (this.termination !== "none") {
+      this.detachTerminated(generation);
       return;
     }
 
@@ -190,6 +212,26 @@ export class DictationController {
     this.detach(generation, {
       phase: "failed",
       error: detail || `Dictation helper exited${exit.signal ? ` (${exit.signal})` : ` with code ${exit.code ?? "unknown"}`}.`,
+    });
+  }
+
+  private detachTerminated(generation: number): void {
+    if (this.termination !== "timed-out" || !this.stoppedWhileListening || this.finalReceived) {
+      this.detach(generation, { phase: "idle" });
+      return;
+    }
+
+    // Losing a long recording is worse than inserting the less polished live preview.
+    const preview = this.latestPartial?.trim();
+    if (preview) {
+      this.finalReceived = true;
+      this.onTranscript?.(preview);
+    }
+    this.detach(generation, {
+      phase: "failed",
+      error: preview
+        ? "Dictation took too long to finish, so the live preview was inserted. Check it before sending."
+        : "Dictation took too long to finish. Nothing was inserted.",
     });
   }
 
@@ -220,27 +262,30 @@ export class DictationController {
     this.onStateChange?.(this.snapshot());
   }
 
-  private armStopTimeout(): void {
+  private armStopTimeout(generation: number): void {
     this.clearTerminationTimers();
     this.stopTimer = setTimeout(() => {
-      if (!this.session) return;
-      this.forcedTermination = true;
-      this.session.kill("SIGTERM");
-      this.killTimer = setTimeout(() => {
-        if (!this.session) return;
-        this.hardKillSent = true;
-        this.session.kill("SIGKILL");
-        const generation = this.activeGeneration;
-        this.settleTimer = setTimeout(() => {
-          if (generation !== undefined && this.activeGeneration === generation) {
-            this.detach(generation, { phase: "idle" });
-          }
-        }, this.killTimeoutMs);
-        this.settleTimer.unref?.();
-      }, this.killTimeoutMs);
-      this.killTimer.unref?.();
+      if (!this.isActive(generation)) return;
+      this.termination = "timed-out";
+      this.terminate(generation);
     }, this.stopTimeoutMs);
     this.stopTimer.unref?.();
+  }
+
+  private terminate(generation: number): void {
+    this.clearTerminationTimers();
+    // Arm escalation first so a synchronous exit during SIGTERM clears it.
+    this.killTimer = setTimeout(() => {
+      if (!this.isActive(generation)) return;
+      this.hardKillSent = true;
+      this.session?.kill("SIGKILL");
+      this.settleTimer = setTimeout(() => {
+        if (this.isActive(generation)) this.detachTerminated(generation);
+      }, this.killTimeoutMs);
+      this.settleTimer.unref?.();
+    }, this.killTimeoutMs);
+    this.killTimer.unref?.();
+    this.session?.kill("SIGTERM");
   }
 
   private clearTerminationTimers(): void {

@@ -102,30 +102,40 @@ describe("DictationController", () => {
     helpers[1]?.exit();
   });
 
-  it("stops and waits for the helper during disposal", async () => {
+  it("terminates the helper during disposal instead of finalizing a discarded transcript", async () => {
     let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
     const controller = new DictationController({
       startHelper: (_options, callbacks) => {
         helper = new FakeHelper(callbacks);
         return helper;
       },
+      onTranscript: (text) => transcripts.push(text),
     });
 
     controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "partial", text: "unsent words" });
     const disposal = controller.dispose();
-    assert.equal(helper?.stopRequests, 1);
-    helper?.exit();
+    assert.equal(helper?.stopRequests, 0);
+    assert.deepEqual(helper?.killSignals, ["SIGTERM"]);
+    helper?.callbacks.onExit({ code: null, signal: "SIGTERM", stderr: "" });
     await disposal;
+
     assert.equal(controller.snapshot().phase, "idle");
+    assert.deepEqual(transcripts, []);
   });
 
-  it("handles a helper that exits synchronously when stopped", async () => {
-    const controller = new DictationController({
-      startHelper: (_options, callbacks) => ({
-        requestStop: () => callbacks.onExit({ code: 0, signal: null, stderr: "" }),
-        kill: () => {},
-      }),
+  it("handles a helper that exits synchronously when stopped or terminated", async () => {
+    const exitingHelper: StartHelper = (_options, callbacks) => ({
+      requestStop: () => callbacks.onExit({ code: 0, signal: null, stderr: "" }),
+      kill: () => callbacks.onExit({ code: null, signal: "SIGTERM", stderr: "" }),
     });
+    const controller = new DictationController({ startHelper: exitingHelper });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    controller.stop("command");
+    assert.equal(controller.snapshot().phase, "idle");
 
     controller.toggle({ executable: "/helper", locale: "en-AU" });
     await controller.dispose();
@@ -187,5 +197,75 @@ describe("DictationController", () => {
     helper?.callbacks.onExit({ code: null, signal: "SIGTERM", stderr: "" });
 
     assert.equal(controller.snapshot().phase, "idle");
+  });
+
+  it("inserts the latest live preview when finalizing a recording times out", async () => {
+    let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onTranscript: (text) => transcripts.push(text),
+      stopTimeoutMs: 1,
+      killTimeoutMs: 50,
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "partial", text: "please refactor" });
+    controller.stop("toggle");
+    helper?.callbacks.onMessage({ type: "partial", text: " please refactor the parser " });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.deepEqual(helper?.killSignals, ["SIGTERM"]);
+    helper?.callbacks.onExit({ code: null, signal: "SIGTERM", stderr: "" });
+
+    assert.deepEqual(transcripts, ["please refactor the parser"]);
+    assert.equal(controller.snapshot().phase, "failed");
+    assert.match(controller.snapshot().error ?? "", /live preview was inserted/);
+  });
+
+  it("reports a finalization timeout when there is no preview to keep", async () => {
+    let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onTranscript: (text) => transcripts.push(text),
+      stopTimeoutMs: 1,
+      killTimeoutMs: 1,
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    controller.stop("toggle");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.deepEqual(helper?.killSignals, ["SIGTERM", "SIGKILL"]);
+    assert.deepEqual(transcripts, []);
+    assert.equal(controller.snapshot().phase, "failed");
+    assert.match(controller.snapshot().error ?? "", /Nothing was inserted/);
+  });
+
+  it("keeps the preview when the helper reports a new input device", () => {
+    let helper: FakeHelper | undefined;
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU", inputDevice: "MacBook Pro Microphone" });
+    helper?.callbacks.onMessage({ type: "partial", text: "hello" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU", inputDevice: "AirPods Pro" });
+
+    assert.equal(controller.snapshot().inputDevice, "AirPods Pro");
+    assert.equal(controller.snapshot().partialText, "hello");
+    helper?.exit();
   });
 });
