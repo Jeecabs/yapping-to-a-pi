@@ -3,42 +3,42 @@ import Foundation
 import Speech
 
 final class AudioCapture: @unchecked Sendable {
+    typealias Buffers = AsyncThrowingStream<AVAudioPCMBuffer, any Error>
+
     private let engine = AVAudioEngine()
     private let lock = NSLock()
-    private var continuation: AsyncThrowingStream<AVAudioPCMBuffer, any Error>.Continuation?
+    private let restartQueue = DispatchQueue(label: "yapping-to-a-pi.audio-restart")
+    private let onInputChange: @Sendable () -> Void
+    private var continuation: Buffers.Continuation?
+    private var configurationObserver: (any NSObjectProtocol)?
     private var running = false
 
-    func start() throws -> AsyncThrowingStream<AVAudioPCMBuffer, any Error> {
-        let (stream, continuation) = AsyncThrowingStream<AVAudioPCMBuffer, any Error>.makeStream(
-            bufferingPolicy: .bufferingNewest(64)
-        )
+    init(onInputChange: @escaping @Sendable () -> Void) {
+        self.onInputChange = onInputChange
+    }
 
-        let input = engine.inputNode
-        input.removeTap(onBus: 0)
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else {
-            throw HelperFailure.microphoneUnavailable
+    func start() throws -> Buffers {
+        let (stream, continuation) = Buffers.makeStream(bufferingPolicy: .bufferingNewest(64))
+
+        // A hardware change stops the engine without ending the tap, which would leave
+        // dictation listening to nothing. Reopen the new default input instead.
+        let observer = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            restartQueue.async { self.restartAfterConfigurationChange() }
         }
 
         lock.lock()
         self.continuation = continuation
+        configurationObserver = observer
         running = true
         lock.unlock()
 
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
-            switch continuation.yield(buffer) {
-            case .enqueued, .terminated:
-                break
-            case .dropped:
-                continuation.finish(throwing: HelperFailure.audioQueueOverflow)
-            @unknown default:
-                continuation.finish(throwing: HelperFailure.audioQueueOverflow)
-            }
-        }
-
         do {
-            engine.prepare()
-            try engine.start()
+            try startEngine(yieldingTo: continuation)
         } catch {
             stop()
             throw error
@@ -55,11 +55,51 @@ final class AudioCapture: @unchecked Sendable {
         running = false
         let continuation = self.continuation
         self.continuation = nil
+        let observer = configurationObserver
+        configurationObserver = nil
         lock.unlock()
 
+        if let observer { NotificationCenter.default.removeObserver(observer) }
         engine.stop()
         engine.inputNode.removeTap(onBus: 0)
         continuation?.finish()
+    }
+
+    private func startEngine(yieldingTo continuation: Buffers.Continuation) throws {
+        let input = engine.inputNode
+        input.removeTap(onBus: 0)
+        let format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else {
+            throw HelperFailure.microphoneUnavailable
+        }
+
+        input.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+            switch continuation.yield(buffer) {
+            case .enqueued, .terminated:
+                break
+            case .dropped:
+                continuation.finish(throwing: HelperFailure.audioQueueOverflow)
+            @unknown default:
+                continuation.finish(throwing: HelperFailure.audioQueueOverflow)
+            }
+        }
+
+        engine.prepare()
+        try engine.start()
+    }
+
+    private func restartAfterConfigurationChange() {
+        lock.lock()
+        defer { lock.unlock() }
+        // A change that leaves the engine running needs no restart, which also avoids restart loops.
+        guard running, let continuation, !engine.isRunning else { return }
+
+        do {
+            try startEngine(yieldingTo: continuation)
+            onInputChange()
+        } catch {
+            continuation.finish(throwing: HelperFailure.microphoneChanged(error.localizedDescription))
+        }
     }
 }
 
@@ -95,11 +135,14 @@ struct LiveDictation {
 
     func run() async throws {
         let stopSignal = StopSignal()
-        let stopReader = Task.detached(priority: .userInitiated) {
+        // The blocking stdin read gets its own thread instead of occupying Swift's cooperative pool.
+        // End of input also stops dictation, so a crashed parent cannot leave the microphone open.
+        let stopReader = Thread {
             _ = readLine()
             stopSignal.stop()
         }
-        defer { stopReader.cancel() }
+        stopReader.name = "yapping-to-a-pi.stop-reader"
+        stopReader.start()
 
         let requestedIdentifier = locale.identifier(.bcp47)
         await emitter.state("preparing", locale: requestedIdentifier)
@@ -153,9 +196,8 @@ struct LiveDictation {
                     try Task.checkCancellation()
                     let text = String(result.text.characters)
                     let combined = await accumulator.consume(text, isFinal: result.isFinal)
-                    if !result.isFinal {
-                        await emitter.partial(combined)
-                    }
+                    // Final results update the preview too, so pauses show the settled words.
+                    await emitter.partial(combined)
                 }
             }
 
@@ -165,7 +207,15 @@ struct LiveDictation {
                 }
                 try throwIfStopped(stopSignal)
 
-                let capture = AudioCapture()
+                let capture = AudioCapture(onInputChange: { [emitter] in
+                    Task {
+                        await emitter.state(
+                            "listening",
+                            locale: localeIdentifier,
+                            inputDevice: Self.currentInputDeviceName()
+                        )
+                    }
+                })
                 guard let buffers = try stopSignal.performUnlessStopped({ try capture.start() }) else {
                     resultTask.cancel()
                     inputBuilder.finish()
@@ -192,8 +242,9 @@ struct LiveDictation {
 
                 let (events, eventContinuation) = AsyncStream<PipelineEvent>.makeStream()
                 let stopWatcher = Task {
-                    _ = await stopSignal.wait()
-                    eventContinuation.yield(.stop)
+                    if await stopSignal.wait() {
+                        eventContinuation.yield(.stop)
+                    }
                 }
                 let resultWatcher = Task {
                     do {
@@ -289,9 +340,8 @@ struct LiveDictation {
         return try await withThrowingTaskGroup(of: T.self) { group in
             group.addTask(operation: operation)
             group.addTask {
-                while !stopSignal.isStopped() {
-                    try await Task.sleep(for: .milliseconds(25))
-                }
+                // Returns on stop, or when cancelled because the operation finished first.
+                _ = await stopSignal.wait()
                 throw CancellationError()
             }
             defer { group.cancelAll() }
@@ -350,6 +400,7 @@ enum HelperFailure: LocalizedError {
     case noCompatibleAudioFormat
     case audioQueueOverflow
     case analyzerInputOverflow
+    case microphoneChanged(String)
     case pipelineFailed(String)
 
     var errorDescription: String? {
@@ -359,7 +410,7 @@ enum HelperFailure: LocalizedError {
         case .localeUnsupported(let locale):
             "The on-device speech model does not support \(locale)."
         case .microphoneDenied:
-            "Microphone access was denied. Enable yapping to a pi in Privacy & Security → Microphone."
+            "Microphone access was denied. macOS grants it to the terminal app that runs Pi; enable that app in System Settings → Privacy & Security → Microphone."
         case .microphoneRestricted:
             "Microphone access is restricted on this Mac."
         case .microphoneUnavailable:
@@ -370,6 +421,8 @@ enum HelperFailure: LocalizedError {
             "Microphone audio fell behind; no transcript was inserted. Try again."
         case .analyzerInputOverflow:
             "Speech analysis fell behind; no transcript was inserted. Try again."
+        case .microphoneChanged(let message):
+            "The microphone changed and could not be reopened; no transcript was inserted. \(message)"
         case .pipelineFailed(let message):
             "Dictation failed: \(message)"
         }
@@ -384,6 +437,7 @@ enum HelperFailure: LocalizedError {
         case .microphoneUnavailable: "microphone-unavailable"
         case .noCompatibleAudioFormat: "audio-format-unavailable"
         case .audioQueueOverflow, .analyzerInputOverflow: "audio-backpressure"
+        case .microphoneChanged: "microphone-changed"
         case .pipelineFailed: "pipeline-failed"
         }
     }

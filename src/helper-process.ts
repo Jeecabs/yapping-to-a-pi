@@ -85,13 +85,13 @@ async function detectHostProblem(options: HelperPreflightOptions): Promise<strin
   return nativeHostProblem(platform, await readMacOSVersion());
 }
 
-async function readMacOSProductVersion(): Promise<string | undefined> {
-  try {
-    const { stdout } = await execFileAsync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8" });
-    return stdout.trim() || undefined;
-  } catch {
-    return undefined;
-  }
+let macOSProductVersion: Promise<string | undefined> | undefined;
+
+// The OS version cannot change while Pi runs, so each start skips the sw_vers spawn.
+function readMacOSProductVersion(): Promise<string | undefined> {
+  macOSProductVersion ??= execFileAsync("/usr/bin/sw_vers", ["-productVersion"], { encoding: "utf8" })
+    .then(({ stdout }) => stdout.trim() || undefined, () => undefined);
+  return macOSProductVersion;
 }
 
 export async function runHelperDoctor(options: {

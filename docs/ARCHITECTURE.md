@@ -38,7 +38,7 @@ snapshot(): DictationSnapshot
 dispose(): Promise<void>
 ```
 
-The implementation hides helper creation, monotonic state transitions, partial transcript state, final transcript deduplication, SIGTERM/SIGKILL escalation, bounded disposal, process exit behavior, and cleanup. Generation tokens reject callbacks from detached helper sessions. The extension supplies callbacks for state changes and one finalized transcript.
+The implementation hides helper creation, monotonic state transitions, partial transcript state, final transcript deduplication, the finalization timeout fallback, SIGTERM/SIGKILL escalation, bounded disposal, process exit behavior, and cleanup. Generation tokens reject callbacks from detached helper sessions. The extension supplies callbacks for state changes and one finalized transcript.
 
 ### Native helper
 
@@ -50,7 +50,7 @@ stdout: one validated NDJSON message per line
 exit:   0 after normal finalization; non-zero after failure
 ```
 
-The implementation hides microphone permission, equivalent-locale resolution, model installation, audio conversion, streaming recognition, volatile-result replacement, supervised pipeline tasks, and finalization. A synchronized stop gate prevents preparation from starting later side effects after cancellation. Bounded audio queues turn overload into a visible failure instead of silently dropping speech.
+The implementation hides microphone permission, equivalent-locale resolution, model installation, audio conversion, input-device restarts, streaming recognition, volatile-result replacement, supervised pipeline tasks, and finalization. A synchronized stop gate prevents preparation from starting later side effects after cancellation. Bounded audio queues turn overload into a visible failure instead of silently dropping speech.
 
 ## Protocol
 
@@ -64,6 +64,8 @@ Messages are newline-delimited JSON:
 {"type":"error","code":"microphone-denied","message":"Microphone access was denied."}
 ```
 
+Each `partial` carries the finalized text plus the current volatile text, and the helper sends one after every recognition result, including final ones. The helper may repeat `listening` with a new `inputDevice` after an input-device change.
+
 The TypeScript adapter validates parsed JSON before it reaches the controller. Unknown message types and malformed lines become protocol errors; they are never cast into trusted values.
 
 ## Lifecycle
@@ -73,19 +75,23 @@ The TypeScript adapter validates parsed JSON before it reaches the controller. U
 - A toggle while listening requests graceful finalization.
 - The helper stops capture, drains converted audio, finalizes SpeechAnalyzer, and awaits the complete result stream.
 - Unexpected audio or recognition task completion fails the session immediately.
+- An `AVAudioEngineConfigurationChange` that stops the engine, such as a new default input, restarts capture on the new device and re-emits `listening`. A failed restart ends the session with `microphone-changed`.
+- If a stop after listening does not finish within the stop timeout, the controller terminates the helper, inserts the latest preview if there is one, and enters `failed` with a message saying which happened. Cancelling during preparation still returns to idle quietly.
 - The controller accepts at most one final transcript per recording and ignores late state regressions.
 - Input-device detail remains available through status and diagnostics.
 - `src/dictation-widget.ts` renders the mic button and partial text without changing the editor. Pi 0.85.0 supplies component-local mouse coordinates.
-- Fullscreen mode shows a static idle button. Regular mode hides it because the terminal owns mouse input.
+- Fullscreen mode, the default since Pi 1.0, shows a static idle button. Regular mode hides it because the terminal owns mouse input.
 - Button clicks call the same toggle handler as the shortcut. The button never requests keyboard focus. Finalization disables it.
 - Modified clicks, repeated clicks in a double-click, and clicks outside the button do not toggle recording.
 - The widget has no timer. Shutdown disposes it and clears the UI before the controller stops.
 - Pi pastes the finalized transcript at the editor cursor without submitting it. Keeping volatile recognition outside the editor avoids overwriting concurrent human edits or requiring unsupported cursor-range replacement.
-- `session_shutdown` invalidates pending async starts, requests stop, escalates from SIGTERM to SIGKILL, and returns within a fixed deadline.
+- `src/transcript-insertion.ts` splits the transcript into pastes of at most 1000 characters and 10 lines, because Pi's editor collapses larger pastes into an uneditable `[paste #n …]` marker. Each chunk is one undo step. RPC hosts receive one paste because their `pasteToEditor` replaces the whole draft.
+- Pi does not expose the cursor position, so insertion adds a leading space when the draft does not already end in whitespace.
+- `session_shutdown` invalidates pending async starts and terminates the helper with SIGTERM, escalating to SIGKILL, instead of finalizing a transcript it would discard. It returns within a fixed deadline.
 
 ## Permissions and privacy
 
-`YappingToAPiHelper.app` contains `NSMicrophoneUsageDescription`. macOS may prompt on the first recording. Capture follows the current macOS default input device; listening state and doctor messages report its name without changing the system route. The app has no network client and does not save audio. Apple's `AssetInventory` may download the locale model once; SpeechTranscriber performs transcription on device.
+macOS attributes microphone access to the responsible process: the terminal app that runs Pi, because the helper is its descendant. The permission prompt, the Privacy & Security → Microphone entry, and the `microphone-denied` message therefore refer to that terminal app, not to the helper. `YappingToAPiHelper.app` still contains `NSMicrophoneUsageDescription`. macOS may prompt on the first recording. Capture follows the current macOS default input device; listening state and doctor messages report its name without changing the system route. The app has no network client and does not save audio. Apple's `AssetInventory` may download the locale model once; SpeechTranscriber performs transcription on device.
 
 ## Configuration
 

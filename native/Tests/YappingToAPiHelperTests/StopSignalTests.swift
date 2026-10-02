@@ -32,4 +32,27 @@ struct StopSignalTests {
         #expect(value == 42)
         #expect(runs == 1)
     }
+
+    @Test("stop wakes every waiter")
+    func wakesWaiters() async {
+        let signal = StopSignal()
+        let first = Task { await signal.wait() }
+        let second = Task { await signal.wait() }
+
+        signal.stop()
+
+        #expect(await first.value == true)
+        #expect(await second.value == true)
+    }
+
+    @Test("a cancelled waiter returns without a stop")
+    func cancelledWaitReturns() async {
+        let signal = StopSignal()
+        let waiter = Task { await signal.wait() }
+
+        waiter.cancel()
+
+        #expect(await waiter.value == false)
+        #expect(signal.isStopped() == false)
+    }
 }

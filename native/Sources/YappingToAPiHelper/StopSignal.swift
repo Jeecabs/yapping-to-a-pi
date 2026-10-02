@@ -3,7 +3,7 @@ import Foundation
 final class StopSignal: @unchecked Sendable {
     private let lock = NSLock()
     private var stopped = false
-    private var waiters: [CheckedContinuation<Bool, Never>] = []
+    private var waiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
 
     func stop() {
         lock.lock()
@@ -12,7 +12,7 @@ final class StopSignal: @unchecked Sendable {
             return
         }
         stopped = true
-        let pending = waiters
+        let pending = Array(waiters.values)
         waiters.removeAll()
         lock.unlock()
 
@@ -21,16 +21,28 @@ final class StopSignal: @unchecked Sendable {
         }
     }
 
+    /// Returns true once stopped, or false if the waiting task is cancelled first.
     func wait() async -> Bool {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            if stopped {
-                lock.unlock()
-                continuation.resume(returning: true)
-            } else {
-                waiters.append(continuation)
-                lock.unlock()
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                lock.lock()
+                if stopped {
+                    lock.unlock()
+                    continuation.resume(returning: true)
+                } else if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(returning: false)
+                } else {
+                    waiters[id] = continuation
+                    lock.unlock()
+                }
             }
+        } onCancel: {
+            lock.lock()
+            let waiter = waiters.removeValue(forKey: id)
+            lock.unlock()
+            waiter?.resume(returning: false)
         }
     }
 

@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { matchesKey, setKittyProtocolActive, type KeyId } from "@earendil-works/pi-tui";
 
-import daDictation, { captureShortcut } from "../src/index.ts";
+import yappingToAPi, { captureShortcut } from "../src/index.ts";
 
 type CommandHandler = (args: string, ctx: ExtensionCommandContext) => Promise<void>;
 
@@ -30,7 +30,7 @@ async function loadExtension() {
     },
   } as unknown as ExtensionAPI;
 
-  await daDictation(pi);
+  await yappingToAPi(pi);
   assert.ok(commandHandler);
   return { commandHandler, shortcuts };
 }
@@ -68,6 +68,41 @@ describe("dictation shortcut UX", () => {
 
     assert.equal(customCount, 1, "the settings UI should open a one-key shortcut recorder");
     assert.equal(inputCount, 0, "users should not need to type strings such as ctrl+alt+d");
+  });
+
+  it("explains a locale environment override before asking for a locale", async (t) => {
+    const previousLocale = process.env.PI_DICTATION_LOCALE;
+    process.env.PI_DICTATION_LOCALE = "en-GB";
+    t.after(() => {
+      if (previousLocale === undefined) delete process.env.PI_DICTATION_LOCALE;
+      else process.env.PI_DICTATION_LOCALE = previousLocale;
+    });
+    const { commandHandler } = await loadExtension();
+    let selectCount = 0;
+    let inputCount = 0;
+    const warnings: string[] = [];
+
+    const ctx = {
+      mode: "tui",
+      ui: {
+        select: async (_title: string, choices: string[]) => {
+          if (selectCount++ !== 0) return "close";
+          return choices.find((choice) => choice.startsWith("locale    "));
+        },
+        input: async () => {
+          inputCount++;
+          return "en-AU";
+        },
+        notify(message: string, level: string) {
+          if (level === "warning") warnings.push(message);
+        },
+      },
+    } as unknown as ExtensionCommandContext;
+
+    await commandHandler("settings", ctx);
+
+    assert.equal(inputCount, 0);
+    assert.deepEqual(warnings, ["Unset PI_DICTATION_LOCALE before saving a locale here."]);
   });
 
   it("records the pressed combination and removes Shift from a modified letter's identity", async () => {

@@ -28,6 +28,7 @@ import { DictationController, type DictationSnapshot } from "./controller.ts";
 import { assertHelperExists, runHelperDoctor, startNativeHelper } from "./helper-process.ts";
 import { SessionLifecycle } from "./session-lifecycle.ts";
 import { DictationWidget } from "./dictation-widget.ts";
+import { insertTranscript } from "./transcript-insertion.ts";
 
 const STATUS_ID = "yapping-to-a-pi";
 const FEEDBACK_WIDGET_ID = "yapping-to-a-pi-feedback";
@@ -35,7 +36,7 @@ const DEFAULT_HELPER_PATH = fileURLToPath(
   new URL("../native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper", import.meta.url),
 );
 
-export default async function daDictation(pi: ExtensionAPI) {
+export default async function yappingToAPi(pi: ExtensionAPI) {
   let config = await loadDictationConfig({ defaultHelperPath: DEFAULT_HELPER_PATH });
   let activeContext: ExtensionContext | undefined;
   let acceptTranscript = false;
@@ -60,8 +61,9 @@ export default async function daDictation(pi: ExtensionAPI) {
       if (snapshot.phase !== "failed") notifiedError = undefined;
     },
     onTranscript(text) {
-      if (!acceptTranscript) return;
-      activeContext?.ui.pasteToEditor(text);
+      const ctx = activeContext;
+      if (!acceptTranscript || !ctx) return;
+      insertTranscript(ctx, text);
     },
   });
 
@@ -220,12 +222,12 @@ export default async function daDictation(pi: ExtensionAPI) {
         continue;
       }
       if (choice === localeRow) {
-        const value = await ctx.ui.input("locale", config.locale);
-        if (!value) continue;
         if (config.localeSource === "environment") {
           ctx.ui.notify("Unset PI_DICTATION_LOCALE before saving a locale here.", "warning");
           continue;
         }
+        const value = await ctx.ui.input("locale", config.locale);
+        if (!value) continue;
         if (!isValidLocale(value)) {
           ctx.ui.notify("Use a BCP-47 locale such as en-AU.", "warning");
           continue;

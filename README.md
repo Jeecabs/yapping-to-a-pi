@@ -20,21 +20,19 @@ pi install https://github.com/Jeecabs/yapping-to-a-pi
 
 Installation builds the native helper locally. If Pi is already open, run `/reload`.
 
-On your first recording, macOS may ask for microphone access for **yapping to a pi**. Apple downloads the speech model if needed. Recognition then runs on device.
+On your first recording, macOS may ask for microphone access for the terminal app that runs Pi, such as Ghostty, Terminal, or iTerm2. The helper runs as part of that app, so macOS grants access to the app rather than to yapping to a pi. Apple downloads the speech model if needed. Recognition then runs on device.
 
 ## Use
 
 Press **F6** to start and stop dictation. On some Mac keyboards, use **Fn-F6**, or enable standard function keys in macOS settings. Press again during preparation to cancel without inserting text.
 
-For a clickable mic button, start Pi in fullscreen mode:
+Pi 1.0 runs fullscreen by default, which adds a clickable **[ ● Dictate ]** button above the editor. Click it to listen, then click **[ ■ Stop mic ]** to insert the transcript. Partial text appears above the editor without changing your draft. The button keeps keyboard focus in the editor and is disabled while finalizing.
 
-```bash
-pi --tui-mode fullscreen
-```
+In regular mode (`"tuiMode": "regular"` or `pi --tui-mode regular`), the terminal owns mouse input, so the idle button is hidden and you use the shortcut. The microphone stays off until you start dictation.
 
-Click **[ ● Dictate ]** to listen, then **[ ■ Stop mic ]** to insert the transcript. Partial text appears above the editor without changing your draft. The button keeps keyboard focus in the editor and is disabled while finalizing.
+The transcript goes in at the cursor as plain, editable text, however long it is. If your draft doesn't already end in a space, dictation adds one first. If you switch microphones while dictating, recording continues on the new macOS default input.
 
-The idle button appears only in fullscreen mode. The microphone stays off until you start dictation.
+If finishing takes too long, Pi inserts the live preview instead and tells you to check it before sending.
 
 ## Settings
 
@@ -74,7 +72,7 @@ Environment variables override saved settings for the current session:
 
 ## Troubleshooting
 
-- **Microphone access denied:** Enable **yapping to a pi** in System Settings → Privacy & Security → Microphone.
+- **Microphone access denied:** Enable the terminal app that runs Pi, such as Ghostty, Terminal, or iTerm2, in System Settings → Privacy & Security → Microphone.
 - **No speech detected:** Select your microphone in Control Center → Sound. Dictation uses the macOS default input device. Run `/dictation doctor` to check it.
 - **Helper missing:** Check that macOS and Swift meet the requirements, then reinstall:
 
@@ -83,12 +81,11 @@ Environment variables override saved settings for the current session:
   pi install https://github.com/Jeecabs/yapping-to-a-pi
   ```
 
-Local builds use ad-hoc signing. macOS may ask for microphone permission again after a helper update.
-
 ## Privacy
 
 - Apple's `SpeechAnalyzer` transcribes audio on device.
 - The extension receives text, never audio. The helper does not save recordings.
+- macOS grants microphone access to your terminal app, so other programs you run in that terminal can also use the microphone.
 - Model downloads and updates use Apple's `AssetInventory`. The helper has no network client.
 - Dictation stops when the Pi session shuts down.
 - The transcript reaches your selected AI model only when you submit the prompt.
