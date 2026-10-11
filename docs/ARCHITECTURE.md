@@ -1,5 +1,35 @@
 # Architecture
 
+## Two native clients
+
+The repository ships a Pi extension and **computer, listen**, an independent SwiftUI/AppKit app. Both use the same Swift speech helper. Neither sends audio outside the native process or submits dictated text.
+
+```txt
+Pi lifecycle -> DictationController -> TypeScript process adapter --+
+                                                                 +-> native Swift helper -> Apple Speech
+Mac app -> AppModel -> Swift HelperSession process adapter --------+
+           |
+           +-> optional on-device Foundation Models -> text insertion
+```
+
+`YappingCore` holds validated desktop protocol messages, text replacements, settings/history storage, shortcut gestures, audio input discovery, and floating-bar geometry. `YappingToAPiApp` owns global shortcuts, the nonactivating panel, permissions, app lifecycle, local writing, and Accessibility/clipboard insertion. Pi's existing seams remain unchanged.
+
+The desktop transport reads stdout with POSIX `read` on a dedicated thread. `FileHandle.read(upToCount:)` waits to fill a pipe buffer on macOS and must not be used for live status delivery. The app validates bounded NDJSON frames before updating state. A fake-helper regression test verifies listening is received while the child is still alive and graceful stop delivers final text.
+
+Recording snapshots its language, microphone, style, dictionary, snippets, and destination. Late callbacks are rejected by a session identifier. Preparation, permission, model download, and finalization have deadlines. Cancel and app shutdown close stdin, terminate the helper, and escalate to SIGKILL. A stop during preparation discards the result. Normal stop waits for the final transcript. Failure retains the latest text for manual recovery.
+
+The desktop helper is embedded inside `computer, listen.app/Contents/Resources`. Microphone permission belongs to the GUI app when launched normally. Accessibility enables global shortcuts and insertion. When dictation finishes, the text goes on the clipboard and stays there, then the app sends Command-V to whatever has focus. Secure fields are excluded: the text is copied but not pasted. Voice edits replace a selection, so they paste only when the captured field, selection, and contents are unchanged. No Return event is synthesized. The floating bar is always on screen.
+
+Foundation Models is optional and independently checks availability and locale support. Dictation cleanup is off until the user opts in during setup or in Style; it uses bounded chunks and falls back to the complete original transcript. Command editing has a bounded selected-text input and never replaces it on generation failure. Context is transient. History stores text only, with retention and never-store controls. The atomic local document uses a private directory and file permissions; unreadable data is preserved rather than overwritten.
+
+The panel is 148 × 32 points while listening at default scale, and 84 × 32 while idle. It starts at the screen's bottom edge, follows the pointer's display until positioned, and stores dragged positions as display-relative coordinates. Saved positions are clamped after display or size changes. Appearance controls preview the real panel without opening the microphone. Text and long errors remain in the hub.
+
+The opt-in microphone meter measures the capture buffer independently of the recognition format. It supports Float32, Float64, Int16 and Int32 PCM, including interleaved input, and takes the loudest channel's RMS. Apple's en-AU speech format on the development Mac is Int16; reading only `floatChannelData` from converted buffers suppressed all level messages. Levels now use a speech-oriented -60 to -18 dBFS display range, emit at most every 40 ms, and feed thirteen recent samples. Silence produces a flat line. Display sensitivity does not alter captured audio, and Reduce Motion disables interpolated bar motion.
+
+`Brand.swift` owns the desktop's name, typography, and light/dark palette. Display names, icon assets, menus and bundle path use **computer, listen**. Internal executable names, the bundle identifier and Application Support directory retain their original names for compatibility. The optional sensitivity preference decodes safely from existing settings.
+
+`build:app` builds the helper and desktop executable, generates a full `.icns` from `assets/AppIcon.png`, embeds the helper, signs and verifies a staged bundle, then replaces the previous bundle. `postinstall` continues to build only the helper for Pi.
+
 ## Runtime flow
 
 ```txt
@@ -65,6 +95,8 @@ Messages are newline-delimited JSON:
 ```
 
 Each `partial` carries the finalized text plus the current volatile text, and the helper sends one after every recognition result, including final ones. The helper may repeat `listening` with a new `inputDevice` after an input-device change.
+
+The desktop client passes `--meter` to opt into `{"type":"level","level":0.5}` messages, normalized from input RMS and throttled to about 12 Hz. These contain no audio samples. Pi does not request or receive meter messages, so its protocol remains unchanged. `--input-uid <UID>` selects a specific microphone for desktop recordings; omitting it follows the macOS default. A missing selected device fails visibly. Device UIDs are resolved on every recording.
 
 The TypeScript adapter validates parsed JSON before it reaches the controller. Unknown message types and malformed lines become protocol errors; they are never cast into trusted values.
 

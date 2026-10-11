@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { nativeHostProblem, swiftToolchainProblem } from "../src/native-requirements.ts";
+import { signingIdentity as resolveSigningIdentity } from "./signing-identity.mjs";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const native = join(root, "native");
@@ -28,7 +29,7 @@ try {
 const toolchainProblem = swiftToolchainProblem(swiftVersion);
 if (toolchainProblem) handleRequirement(toolchainProblem);
 
-execFileSync("xcrun", ["swift", "build", "--package-path", native, "-c", "release"], {
+execFileSync("xcrun", ["swift", "build", "--package-path", native, "-c", "release", "--product", "yapping-to-a-pi-helper"], {
   cwd: root,
   stdio: "inherit",
 });
@@ -44,7 +45,7 @@ const backupApp = `${app}.backup-${process.pid}`;
 const macos = join(stagingApp, "Contents", "MacOS");
 const resources = join(stagingApp, "Contents", "Resources");
 const targetBinary = join(macos, "yapping-to-a-pi-helper");
-const signingIdentity = process.env.YAPPING_TO_A_PI_CODESIGN_IDENTITY?.trim() || "-";
+const signingIdentity = resolveSigningIdentity();
 
 rmSync(stagingApp, { recursive: true, force: true });
 rmSync(backupApp, { recursive: true, force: true });

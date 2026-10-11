@@ -5,3 +5,4 @@ native/.build/
 .env
 .env.*
 !.env.example
+.wrangler/
