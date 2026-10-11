@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.28.2",
-  "description": "On-device voice dictation for Pi on macOS.",
+  "description": "computer, listen: on-device macOS dictation with a Pi extension.",
   "repository": {
     "type": "git",
     "url": "https://github.com/Jeecabs/yapping-to-a-pi.git"
@@ -24,11 +24,15 @@
   "scripts": {
     "postinstall": "node scripts/build-native.mjs",
     "build:native": "node scripts/build-native.mjs",
+    "build:app": "node scripts/build-app.mjs",
+    "open:app": "open 'native/.build/computer, listen.app'",
+    "doctor:app": "'native/.build/computer, listen.app/Contents/MacOS/yapping-to-a-pi' --diagnose",
     "check": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "test:native": "xcrun swift test --package-path native",
     "doctor:native": "native/.build/YappingToAPiHelper.app/Contents/MacOS/yapping-to-a-pi-helper --doctor",
-    "verify": "pnpm run check && pnpm run test && pnpm run test:native && pnpm run build:native && pnpm run doctor:native"
+    "verify": "pnpm run check && pnpm run test && pnpm run test:native && pnpm run build:app && pnpm run doctor:native && pnpm run doctor:app",
+    "release:app": "node scripts/release-app.mjs"
   },
   "engines": {
     "node": ">=22.19.0"

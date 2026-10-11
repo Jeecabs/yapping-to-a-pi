@@ -1,6 +1,8 @@
 @preconcurrency import AVFoundation
 import Foundation
 import Speech
+import AudioToolbox
+import YappingCore
 
 final class AudioCapture: @unchecked Sendable {
     typealias Buffers = AsyncThrowingStream<AVAudioPCMBuffer, any Error>
@@ -9,11 +11,13 @@ final class AudioCapture: @unchecked Sendable {
     private let lock = NSLock()
     private let restartQueue = DispatchQueue(label: "yapping-to-a-pi.audio-restart")
     private let onInputChange: @Sendable () -> Void
+    private let deviceID: AudioDeviceID?
     private var continuation: Buffers.Continuation?
     private var configurationObserver: (any NSObjectProtocol)?
     private var running = false
 
-    init(onInputChange: @escaping @Sendable () -> Void) {
+    init(deviceID: AudioDeviceID? = nil, onInputChange: @escaping @Sendable () -> Void) {
+        self.deviceID = deviceID
         self.onInputChange = onInputChange
     }
 
@@ -68,6 +72,13 @@ final class AudioCapture: @unchecked Sendable {
     private func startEngine(yieldingTo continuation: Buffers.Continuation) throws {
         let input = engine.inputNode
         input.removeTap(onBus: 0)
+        if var deviceID {
+            guard let unit = input.audioUnit,
+                  AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                       &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)) == noErr else {
+                throw HelperFailure.microphoneUnavailable
+            }
+        }
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw HelperFailure.microphoneUnavailable
@@ -132,6 +143,8 @@ private enum PipelineEvent: Sendable {
 struct LiveDictation {
     let locale: Locale
     let emitter: ProtocolEmitter
+    var inputUID: String? = nil
+    var emitMeter = false
 
     func run() async throws {
         let stopSignal = StopSignal()
@@ -207,12 +220,14 @@ struct LiveDictation {
                 }
                 try throwIfStopped(stopSignal)
 
-                let capture = AudioCapture(onInputChange: { [emitter] in
+                let selectedInput = inputUID.flatMap { uid in AudioInputs.available().first { $0.id == uid } }
+                if inputUID != nil && selectedInput == nil { throw HelperFailure.microphoneUnavailable }
+                let capture = AudioCapture(deviceID: selectedInput?.deviceID, onInputChange: { [emitter] in
                     Task {
                         await emitter.state(
                             "listening",
                             locale: localeIdentifier,
-                            inputDevice: Self.currentInputDeviceName()
+                            inputDevice: selectedInput?.name ?? Self.currentInputDeviceName()
                         )
                     }
                 })
@@ -224,9 +239,14 @@ struct LiveDictation {
                 }
 
                 let audioTask = Task {
+                    var lastMeter = ContinuousClock.now
                     for try await buffer in buffers {
                         try Task.checkCancellation()
                         let converted = try converter.convert(buffer, to: analyzerFormat)
+                        if emitMeter, lastMeter.duration(to: .now) >= .milliseconds(40) {
+                            await emitter.level(AudioMeter.level(in: buffer))
+                            lastMeter = .now
+                        }
                         switch inputBuilder.yield(AnalyzerInput(buffer: converted)) {
                         case .enqueued:
                             break
@@ -281,7 +301,7 @@ struct LiveDictation {
                 await emitter.state(
                     "listening",
                     locale: localeIdentifier,
-                    inputDevice: Self.currentInputDeviceName()
+                    inputDevice: selectedInput?.name ?? Self.currentInputDeviceName()
                 )
                 guard let event = await events.first(where: { _ in true }) else {
                     throw HelperFailure.pipelineFailed("The dictation pipeline stopped without a result.")

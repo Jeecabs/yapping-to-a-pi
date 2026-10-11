@@ -1,6 +1,43 @@
-# yapping to a pi
+# computer, listen
 
-On-device voice dictation for [Pi](https://github.com/badlogic/pi-mono) on macOS.
+You talk. Your Mac types. On-device dictation with a native Mac app and the **yapping to a pi** [Pi](https://github.com/badlogic/pi-mono) extension.
+
+## Mac app
+
+Build and open the native app:
+
+```bash
+pnpm install
+pnpm run build:app
+pnpm run open:app
+```
+
+The bundle is `native/.build/computer, listen.app`. It includes the speech helper, a typographic Dock icon, and a matching menu bar mark. The built app runs without Node or Pi. Builds are signed locally; distribution signing and notarization are separate.
+
+Enable Microphone and Accessibility in the app's setup or Settings. Download a speech language once, then dictate on device. Opening the app does not open the microphone.
+
+| Action | Default |
+| --- | --- |
+| Hold to talk | Hold **Fn / Globe**, release to finish |
+| Hands-free | **Fn + Space** or double-tap **Fn** |
+| Finish hands-free dictation | Press **Fn** or click Stop |
+| Cancel | **Escape** or the pill's X |
+| Edit selected text by voice | Select text, then hold **Fn + Control** |
+| Change any shortcut | **Settings → dictation**: click a shortcut, then press new keys |
+
+The small floating pill is always on screen. While you dictate, it shows a rolling waveform from your microphone and recording controls. It starts 6 points above the screen's bottom edge. Drag its middle to move it; the app remembers its position and display. **Settings → Appearance & floating bar** provides a live preview, size, opacity, waveform sensitivity, bottom spacing, screen/Dock anchoring, recenter, and light/dark appearance controls. Sensitivity changes the display, not microphone gain. Preview never records.
+
+The hub includes local searchable text history, original-text recovery, dictionary corrections, spoken snippets, per-app writing styles, and reviewable rewrites. Settings provides microphone selection, Apple-supported speech languages, login launch, Dock visibility, sounds, context, and history retention. Snippets currently insert plain text.
+
+Cleanup is off by default, so you get exactly what you said. Turn it on during setup or in Style. Cleanup, styles, and voice editing use Apple's on-device Foundation Models and require Apple Intelligence. If cleanup fails or is unavailable, the app keeps the original transcript. Voice editing leaves the selection unchanged on failure. When you finish, the text is copied to your clipboard and pasted wherever your cursor is. It stays on the clipboard so you can paste it again. Password fields get the copy but not the paste. Voice edits only replace the selection if it hasn't changed. Nothing presses Return or submits a prompt.
+
+Settings, dictionary, snippets, and optional text history are stored in `~/Library/Application Support/Yapping to a Pi/desktop.json`. Audio is never saved. The app has no cloud processing or analytics. Pi settings remain separate.
+
+The desktop rebrand preserves the original bundle identifier and data folder so existing preferences and history remain available. The repository, Pi package, and CLI names remain `yapping-to-a-pi`.
+
+This app follows Wispr Flow's personal dictation workflow. It does not claim identical model quality or language coverage. See the [feature research and parity notes](docs/WISPR-FLOW-PARITY.md) for the reference behavior and remaining differences.
+
+## Pi extension
 
 Press **F6** to listen, then press it again to insert the transcript at your editor cursor. Edit before sending. Dictation never submits a prompt.
 
@@ -100,15 +137,28 @@ pi install .
 pnpm run verify
 ```
 
-`verify` runs TypeScript checks, existing tests, the native build, and diagnostics without opening the microphone. Use `pnpm run doctor:native` for native diagnostics alone.
+`verify` runs TypeScript checks, extension and native tests, both app builds, signature checks, and diagnostics without opening the microphone. Use `pnpm run doctor:native` for helper diagnostics or `pnpm run doctor:app` for bundle diagnostics. Permission results from command-line diagnostics apply to that launch context; the app's Settings shows its GUI permission state.
 
-To sign a local build with your own identity:
+Builds sign with the first Developer ID Application or Apple Development identity in your keychain. macOS keys Accessibility and Microphone grants to the signature, so a stable identity keeps those grants across rebuilds. With no identity, builds are signed ad hoc, and every rebuild needs Accessibility granted again. To choose an identity, or force ad hoc with `-`:
 
 ```bash
-YAPPING_TO_A_PI_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" pnpm run build:native
+YAPPING_TO_A_PI_CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" pnpm run build:app
 ```
 
 Distributing a prebuilt helper requires separate hardened runtime signing and notarization. The Git install builds from source.
+
+### Releasing the Mac app
+
+`pnpm run release:app` builds `native/.build/computer-listen.dmg`. It signs the helper and then the app with a Developer ID, hardened runtime, a secure timestamp and `native/Release.entitlements` (microphone only). It then notarizes and staples the app and the DMG. One-time setup:
+
+1. Create a **Developer ID Application** certificate. In Xcode, go to Settings → Accounts → your team → Manage Certificates → + → Developer ID Application. This needs a paid Apple Developer Program membership.
+2. Save notary credentials using an app-specific password from account.apple.com:
+
+```bash
+xcrun notarytool store-credentials computer-listen --apple-id you@example.com --team-id TEAMID
+```
+
+`YAPPING_TO_A_PI_SKIP_NOTARIZE=1 pnpm run release:app` checks signing and DMG packaging without credentials. The App Store isn't an option. The app needs Accessibility trust to hear its global shortcut and to paste, and sandboxed apps can't receive that trust.
 
 See [Architecture](docs/ARCHITECTURE.md) for the controller, native helper, and protocol.
 

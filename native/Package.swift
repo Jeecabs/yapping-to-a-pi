@@ -8,13 +8,19 @@ let package = Package(
         .macOS(.v26)
     ],
     products: [
-        .executable(name: "yapping-to-a-pi-helper", targets: ["YappingToAPiHelper"])
+        .executable(name: "yapping-to-a-pi-helper", targets: ["YappingToAPiHelper"]),
+        .executable(name: "yapping-to-a-pi", targets: ["YappingToAPiApp"])
     ],
     targets: [
+        .target(name: "YappingCore"),
+        .executableTarget(name: "YappingToAPiApp", dependencies: ["YappingCore"]),
         .executableTarget(
             name: "YappingToAPiHelper",
+            dependencies: ["YappingCore"],
             path: "Sources/YappingToAPiHelper"
         ),
+        .testTarget(name: "YappingCoreTests", dependencies: ["YappingCore"]),
+        .testTarget(name: "YappingToAPiAppTests", dependencies: ["YappingToAPiApp", "YappingCore"]),
         .testTarget(
             name: "YappingToAPiHelperTests",
             dependencies: ["YappingToAPiHelper"],

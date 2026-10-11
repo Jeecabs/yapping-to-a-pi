@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>computer, listen</string>
+  <key>CFBundleName</key><string>computer, listen</string>
+  <key>CFBundleExecutable</key><string>yapping-to-a-pi</string>
+  <key>CFBundleIdentifier</key><string>com.jeecabs.yapping-to-a-pi</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
+  <key>LSMinimumSystemVersion</key><string>26.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSMicrophoneUsageDescription</key><string>computer, listen uses your microphone while you dictate. Speech is processed on your Mac and audio is never saved.</string>
+  <key>NSHumanReadableCopyright</key><string>computer, listen</string>
+</dict></plist>

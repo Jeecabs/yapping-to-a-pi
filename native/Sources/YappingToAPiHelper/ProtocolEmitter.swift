@@ -23,6 +23,8 @@ actor ProtocolEmitter {
         emit(message)
     }
 
+    func level(_ level: Double) { emit(LevelMessage(type: "level", level: level)) }
+
     private func emit<T: Encodable>(_ message: T) {
         do {
             let data = try encoder.encode(message)
@@ -39,6 +41,11 @@ private struct StateMessage: Encodable {
     let state: String
     let locale: String
     let inputDevice: String?
+}
+
+private struct LevelMessage: Encodable {
+    let type: String
+    let level: Double
 }
 
 private struct TextMessage: Encodable {
