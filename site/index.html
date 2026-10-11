@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>computer, listen</title>
+  <meta name="description" content="you talk. your mac types. on-device dictation for macOS, plus a pi extension. audio is never saved.">
+  <meta name="theme-color" content="#171B17">
+  <link rel="icon" href="img/icon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,300..900&display=swap">
+  <link rel="preload" href="fonts/DepartureMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="menubar">
+    <a class="menubar-mark" href="#top" aria-label="computer, listen">c<span>,</span></a>
+    <nav class="menubar-nav" aria-label="sections">
+      <a href="#controls">controls</a>
+      <a href="#local">privacy</a>
+      <a href="#extras">extras</a>
+      <a href="#pi">pi</a>
+      <a href="#get">download</a>
+    </nav>
+    <div class="menubar-status">
+      <span class="mic-state" data-mic-state>mic off</span>
+      <time class="clock" data-clock>00:00</time>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="desk" aria-label="computer, listen" data-desk>
+      <div class="desk-intro">
+        <p class="label">on-device dictation for macOS</p>
+        <p class="desk-lede">you talk. your mac types. clean text lands at your cursor, and nothing leaves the room.</p>
+        <div class="desk-actions">
+          <a class="btn btn-lime" href="https://github.com/Jeecabs/yapping-to-a-pi/releases/latest/download/computer-listen.dmg" data-download>download for mac</a>
+          <span class="hint" data-hint>or hold <kbd data-demo-key>space</kbd> to try it here</span>
+        </div>
+      </div>
+
+      <article class="win win-transcript" data-win style="--x: 0px; --y: 0px">
+        <div class="win-bar" data-drag>
+          <span class="win-close" aria-hidden="true"></span>
+          <span class="win-title">untitled.txt</span>
+          <span class="win-meta" data-state-label>idle</span>
+        </div>
+        <div class="win-body">
+          <div class="field" contenteditable="true" spellcheck="false" data-field aria-label="dictation demo text field"></div>
+          <p class="field-foot">it's just text. edit it. nothing gets sent.</p>
+        </div>
+      </article>
+
+      <article class="win win-speaker" data-win style="--x: 0px; --y: 0px">
+        <div class="win-bar" data-drag>
+          <span class="win-close" aria-hidden="true"></span>
+          <span class="win-title">monitor</span>
+        </div>
+        <div class="win-body">
+          <canvas class="dither" data-speaker aria-hidden="true"></canvas>
+        </div>
+      </article>
+
+      <span class="sticker sticker-lime" style="--r: -6deg">on device</span>
+      <span class="sticker sticker-blue" style="--r: -3deg">never hits return</span>
+      <span class="sticker sticker-paper" style="--r: 7deg">macOS 26</span>
+
+      <h1 class="wordmark" aria-label="computer, listen">
+        <span>computer<em>,</em></span>
+        <span>listen</span>
+      </h1>
+
+      <button class="pill" type="button" data-pill aria-label="hold to dictate">
+        <span class="pill-dot" aria-hidden="true"></span>
+        <canvas class="pill-wave" width="120" height="24" data-wave aria-hidden="true"></canvas>
+        <span class="pill-time" data-timer>0:00</span>
+      </button>
+    </section>
+
+    <section class="controls" id="controls">
+      <div class="section-head">
+        <h2 data-fit>hold a key. talk. let go.</h2>
+        <p class="controls-hint">every key is yours. click one to rebind it.</p>
+      </div>
+      <dl class="keys">
+        <div class="key-row">
+          <dt><button class="bind" type="button" data-bind="hold" data-default="fn"></button></dt>
+          <dd><strong>hold to talk</strong></dd>
+        </div>
+        <div class="key-row">
+          <dt><button class="bind" type="button" data-bind="handsfree" data-default="fn+space"></button></dt>
+          <dd><strong>hands-free</strong></dd>
+        </div>
+        <div class="key-row">
+          <dt><button class="bind" type="button" data-bind="cancel" data-default="esc"></button></dt>
+          <dd><strong>cancel</strong></dd>
+        </div>
+        <div class="key-row">
+          <dt><button class="bind" type="button" data-bind="edit" data-default="fn+control"></button></dt>
+          <dd><strong>edit selection by voice</strong></dd>
+        </div>
+      </dl>
+    </section>
+
+    <section class="local" id="local">
+      <div class="section-head">
+        <h2 data-fit>nothing leaves the room.</h2>
+        <p>speech and cleanup run on your mac. works with wi-fi off.</p>
+      </div>
+      <div class="local-art">
+        <div class="receipt" role="table" aria-label="what happens to your voice">
+          <p class="receipt-head">computer, listen<br>what happened to your voice</p>
+          <div class="receipt-row" role="row"><span role="cell">recognition</span><span role="cell">on device</span></div>
+          <div class="receipt-row" role="row"><span role="cell">cleanup</span><span role="cell">on device</span></div>
+          <div class="receipt-row" role="row"><span role="cell">audio saved</span><span role="cell">0 bytes</span></div>
+          <div class="receipt-row" role="row"><span role="cell">cloud requests</span><span role="cell">0</span></div>
+          <div class="receipt-row" role="row"><span role="cell">analytics</span><span role="cell">none</span></div>
+          <div class="receipt-row" role="row"><span role="cell">history</span><span role="cell">local, optional</span></div>
+          <p class="receipt-foot">if cleanup fails you get your words back as you said them.</p>
+        </div>
+        <svg class="seal" viewBox="0 0 200 200" aria-hidden="true">
+          <defs><path id="seal-path" d="M100,100 m-74,0 a74,74 0 1,1 148,0 a74,74 0 1,1 -148,0"/></defs>
+          <circle cx="100" cy="100" r="96" />
+          <circle cx="100" cy="100" r="56" />
+          <text class="seal-ring"><textPath href="#seal-path" textLength="462" lengthAdjust="spacing">on device · no cloud · audio never saved · </textPath></text>
+          <text class="seal-mark" x="100" y="122" text-anchor="middle">c<tspan>,</tspan></text>
+        </svg>
+      </div>
+    </section>
+
+    <section class="chain" id="extras" data-chain>
+      <div class="section-head">
+        <h2 data-fit>say it messy. get it clean.</h2>
+      </div>
+
+      <div class="output">
+        <p class="output-label"><span data-output-target>as said</span><span>original kept in history</span></p>
+        <p class="output-text" data-output aria-live="polite"></p>
+      </div>
+
+      <div class="board">
+        <div class="pedal pedal-lime">
+          <span class="led" aria-hidden="true"></span>
+          <h3>cleanup</h3>
+          <p>no ums. real punctuation.</p>
+          <button class="stomp" type="button" aria-pressed="false" data-pass="cleanup" aria-label="cleanup"></button>
+        </div>
+        <div class="pedal pedal-blue">
+          <span class="led" aria-hidden="true"></span>
+          <h3>dictionary</h3>
+          <p>super base → Supabase</p>
+          <button class="stomp" type="button" aria-pressed="false" data-pass="dictionary" aria-label="dictionary"></button>
+        </div>
+        <div class="pedal pedal-pink">
+          <span class="led" aria-hidden="true"></span>
+          <h3>style</h3>
+          <div class="selector" role="radiogroup" aria-label="app style">
+            <button type="button" role="radio" aria-checked="false" data-style="notes">notes</button>
+            <button type="button" role="radio" aria-checked="false" data-style="slack">slack</button>
+            <button type="button" role="radio" aria-checked="false" data-style="mail">mail</button>
+          </div>
+          <button class="stomp" type="button" aria-pressed="false" data-pass="style" aria-label="style"></button>
+        </div>
+        <div class="pedal pedal-paper">
+          <span class="led" aria-hidden="true"></span>
+          <h3>voice edit</h3>
+          <p>"make it shorter"</p>
+          <button class="stomp" type="button" aria-pressed="false" data-pass="shorter" aria-label="voice edit: make it shorter"></button>
+        </div>
+      </div>
+      <p class="chain-foot">also: snippets, searchable history, a pill you can park anywhere.</p>
+    </section>
+
+    <section class="pi" id="pi">
+      <div class="section-head">
+        <h2>also lives in pi.</h2>
+        <p>press <kbd class="cap cap-inline">F6</kbd>, talk, press it again. it lands in <a href="https://github.com/badlogic/pi-mono">pi</a>'s editor and never sends itself.</p>
+      </div>
+      <div class="win win-term">
+        <div class="win-bar">
+          <span class="win-close" aria-hidden="true"></span>
+          <span class="win-title">pi — zsh</span>
+        </div>
+        <div class="win-body term">
+          <div class="term-line"><span class="term-prompt">$</span> <span data-copy-src>pi install https://github.com/Jeecabs/yapping-to-a-pi</span><button class="copy" type="button" data-copy>copy</button></div>
+          <div class="term-line term-dim">building native helper… done</div>
+          <div class="term-gap"></div>
+          <div class="term-line term-dim">[ <span class="rec">●</span> Dictate ]</div>
+          <div class="term-line"><span class="term-prompt">&gt;</span> refactor the settings loader so it returns early instead of nesting everything<span class="term-caret"></span></div>
+          <div class="term-gap"></div>
+          <div class="term-line term-dim">F6 listen · F6 insert · edit, then send it yourself</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="get" id="get">
+      <div class="section-head">
+        <h2 data-fit>talk to your computer.</h2>
+      </div>
+      <div class="get-grid">
+        <div class="get-download">
+          <a class="btn btn-lime btn-big" href="https://github.com/Jeecabs/yapping-to-a-pi/releases/latest/download/computer-listen.dmg" data-download>download computer, listen</a>
+          <p class="get-meta">signed dmg · macOS 26+</p>
+          <ul class="reqs">
+            <li><span>cleanup</span> needs Apple Intelligence</li>
+            <li><span>source</span> <a href="https://github.com/Jeecabs/yapping-to-a-pi">github</a></li>
+          </ul>
+        </div>
+        <div class="win win-dmg" aria-hidden="true">
+          <div class="win-bar">
+            <span class="win-close"></span>
+            <span class="win-title">computer, listen.dmg</span>
+          </div>
+          <div class="win-body dmg">
+            <figure class="dmg-item">
+              <img src="img/icon.png" alt="" width="112" height="112">
+              <figcaption>computer, listen</figcaption>
+            </figure>
+            <svg class="dmg-arrow" viewBox="0 0 120 24"><path d="M2 12 H108" /><path d="M100 4 L112 12 L100 20" /></svg>
+            <figure class="dmg-item">
+              <span class="folder"></span>
+              <figcaption>Applications</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <canvas class="dither foot-mark" data-mark aria-hidden="true"></canvas>
+    <div class="foot-row">
+      <span>computer, listen. made on a computer that listens.</span>
+    </div>
+  </footer>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.186.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.186.1/examples/jsm/"
+      }
+    }
+  </script>
+  <script src="main.js" defer></script>
+  <script type="module" src="scene.js"></script>
+</body>
+</html>
