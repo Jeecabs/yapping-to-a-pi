@@ -1,0 +1,9 @@
+{
+  "name": "computer-listen",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "." },
+  "routes": [
+    { "pattern": "computerlisten.com", "custom_domain": true },
+    { "pattern": "www.computerlisten.com", "custom_domain": true }
+  ]
+}
