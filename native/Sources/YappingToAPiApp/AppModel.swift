@@ -67,8 +67,10 @@ final class AppModel {
     var transformResult = ""
     var setupBusy = false
     var previewingBar = false
-    /// A short line the floating bar shows after a dictation that didn't simply paste.
-    var barNotice: String?
+    /// A short line the floating bar shows after a dictation: where the text went, or why it didn't paste.
+    var barNotice: BarNotice?
+    /// False when the bar sits near the top of the screen and opens downward.
+    var barExpandsUp = true
     /// True while Settings is listening for a new shortcut; the global shortcut stands down.
     var recordingShortcut = false
     @ObservationIgnored private var noticeTask: Task<Void, Never>?
@@ -158,12 +160,13 @@ final class AppModel {
         }
     }
 
-    func showBarNotice(_ notice: String) {
+    func showBarNotice(_ text: String, kind: BarNotice.Kind = .problem) {
+        let notice = BarNotice(text: text, kind: kind)
         barNotice = notice
         presentationChanged?()
         noticeTask?.cancel()
         noticeTask = Task { [weak self] in
-            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+            do { try await Task.sleep(for: notice.duration) } catch { return }
             self?.barNotice = nil
             self?.presentationChanged?()
         }
@@ -329,17 +332,25 @@ final class AppModel {
                                                  appName: target?.name ?? Brand.name, duration: duration, isCommand: command), at: 0)
                 data.pruneHistory()
             }
+            // Say where the text went. A paste that didn't land must never look like one that did.
+            var landed: String?
             do {
-                if command, let target { try target.replaceSelection(with: text) } else { try TextDestination.paste(text) }
+                if command, let target {
+                    try await target.replaceSelection(with: text)
+                    landed = "replaced in \(Self.shortName(target.name))"
+                } else {
+                    landed = "pasted in \(Self.shortName(try await TextDestination.paste(text)))"
+                }
             } catch {
                 note = error.localizedDescription
-                showBarNotice("copied · press ⌘V to paste")
             }
             guard sessionID == id else { return }
             cleanup()
             preview = ""
             status = note
-            if data.settings.soundEffects { NSSound(named: "Pop")?.play() }
+            if let landed { showBarNotice(landed, kind: .landed) }
+            else { showBarNotice(AXIsProcessTrusted() ? "copied, press ⌘V" : "copied, allow Accessibility to paste") }
+            if data.settings.soundEffects { NSSound(named: landed == nil ? "Funk" : "Pop")?.play() }
             presentationChanged?()
         } catch {
             guard sessionID == id else { return }
@@ -351,7 +362,7 @@ final class AppModel {
         if !preview.isEmpty { latestText = preview }
         cleanup()
         showStatus(message)
-        showBarNotice("something went wrong · open the app")
+        showBarNotice("something went wrong, open the app")
     }
 
     private func watchPreparation(id: UUID, seconds: Int) {
@@ -373,6 +384,11 @@ final class AppModel {
         startedAt = nil
         destination = nil
         recordingEnded?()
+    }
+
+    /// Keeps app names short enough for the bar.
+    private static func shortName(_ name: String) -> String {
+        name.count > 18 ? name.prefix(17).trimmingCharacters(in: .whitespaces) + "…" : name
     }
 
     func showStatus(_ message: String) { status = message; presentationChanged?() }

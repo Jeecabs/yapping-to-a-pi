@@ -377,6 +377,12 @@ struct AppearanceView: View {
                         .monospacedDigit().frame(width: 42, alignment: .trailing)
                 }
                 HStack {
+                    Text("On hover").frame(width: 106, alignment: .leading)
+                    Picker("On hover", selection: $model.data.settings.appearanceOptions.hover) {
+                        ForEach(BarHoverDetail.allCases, id: \.self) { Text($0.title).tag($0) }
+                    }.pickerStyle(.segmented).labelsHidden()
+                }
+                HStack {
                     Text("Background").frame(width: 106, alignment: .leading)
                     Slider(value: $model.data.settings.appearanceOptions.opacity, in: 0.6...1, step: 0.05)
                         .accessibilityLabel("Floating bar background opacity")

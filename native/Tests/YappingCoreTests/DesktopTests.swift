@@ -150,16 +150,56 @@ struct DesktopTests {
     func overlayPlacement() {
         let screen = CGRect(x: -1_440, y: 0, width: 1_440, height: 900)
         let visible = CGRect(x: -1_440, y: 80, width: 1_440, height: 795)
-        let size = CGSize(width: 148, height: 32)
+        let row = CGSize(width: 90, height: 32)
+        let canvas = CGSize(width: 264, height: 142)
         var preferences = AppearancePreferences()
-        let initial = OverlayLayout.frame(screen: screen, visible: visible, size: size, preferences: preferences)
-        #expect(initial.minY == 6)
-        #expect(initial.midX == screen.midX)
+        func place() -> OverlayPlacement {
+            OverlayLayout.placement(screen: screen, visible: visible, row: row, canvas: canvas, inset: 14, preferences: preferences)
+        }
+        func pill(_ placement: OverlayPlacement) -> CGPoint {
+            OverlayLayout.rowCenter(in: placement.frame, row: row, inset: 14, expandsUp: placement.expandsUp)
+        }
+        let initial = place()
+        #expect(initial.expandsUp)
+        #expect(pill(initial).y - row.height / 2 == 6)
+        #expect(initial.frame.midX == screen.midX)
         preferences.edge = .dock
-        #expect(OverlayLayout.frame(screen: screen, visible: visible, size: size, preferences: preferences).minY == 86)
+        #expect(pill(place()).y - row.height / 2 == 86)
         preferences.position = BarPosition(displayID: 1, x: 2, y: -1)
-        let clamped = OverlayLayout.frame(screen: screen, visible: visible, size: size, preferences: preferences)
-        #expect(screen.contains(clamped))
-        #expect(clamped.minY == 2)
+        let clamped = pill(place())
+        #expect(clamped.x + row.width / 2 <= screen.maxX)
+        #expect(clamped.y - row.height / 2 == 2)
+    }
+
+    @Test("Near the top of the screen the bar opens downward and remembers the pill, not the panel")
+    func overlayOpensDown() {
+        let screen = CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        let visible = CGRect(x: 0, y: 0, width: 1_440, height: 875)
+        let row = CGSize(width: 90, height: 32)
+        var preferences = AppearancePreferences()
+        preferences.position = BarPosition(displayID: 1, x: 0.5, y: 0.95)
+        let placement = OverlayLayout.placement(screen: screen, visible: visible, row: row,
+                                                canvas: CGSize(width: 264, height: 142), inset: 14, preferences: preferences)
+        #expect(!placement.expandsUp)
+        let center = OverlayLayout.rowCenter(in: placement.frame, row: row, inset: 14, expandsUp: false)
+        #expect(abs(center.y - 855) <= 0.5)
+    }
+
+    @Test("Hover hints follow rebound shortcuts and the compact bar shows at most two")
+    func barHints() {
+        var shortcuts = ShortcutBindings.defaults
+        shortcuts.talk = KeyBinding(keyCode: 61, keyLabel: "right ⌥")
+        let ready = BarHint.hints(for: .ready, shortcuts: shortcuts)
+        #expect(ready.first?.keys == "right ⌥")
+        for stage in [BarHint.Stage.ready, .listening, .working, .needsAccess] {
+            #expect(BarHint.hints(for: stage, shortcuts: shortcuts).count(where: \.compact) <= 2)
+        }
+        #expect(BarHint.hints(for: .listening, shortcuts: shortcuts).contains { $0.keys == "esc" })
+    }
+
+    @Test("Older settings without a hover choice open fully")
+    func hoverDefault() throws {
+        let preferences = try JSONDecoder().decode(AppearancePreferences.self, from: Data(#"{"theme":"system","barScale":1,"bottomSpacing":6,"edge":"screen","opacity":0.96}"#.utf8))
+        #expect(preferences.hover == .full)
     }
 }
