@@ -4,7 +4,7 @@ You talk. Your Mac types. On-device dictation for macOS, plus a [Pi](https://git
 
 **[Download for macOS](https://github.com/Jeecabs/yapping-to-a-pi/releases/latest/download/computer-listen.dmg)** · requires macOS 26 · [computerlisten.com](https://computerlisten.com)
 
-Hold a key, talk, let go. The text is copied and pasted wherever you were typing. It never presses Return.
+Hold a key, talk, let go. The text is pasted wherever you were typing, and the bar tells you where it landed. It never presses Return.
 
 | Action | Default |
 | --- | --- |

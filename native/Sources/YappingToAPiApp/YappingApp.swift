@@ -130,30 +130,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentStatus() {
         if panel == nil {
-            let panel = DictationPanel(contentRect: NSRect(origin: .zero, size: RecordingOverlay.size(for: model)),
+            let panel = DictationPanel(contentRect: NSRect(origin: .zero, size: BarStyle.canvas),
                                        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
             panel.isFloatingPanel = true
             panel.level = .floating
             panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
             panel.isOpaque = false
             panel.backgroundColor = .clear
-            panel.hasShadow = true
+            // The bar draws its own shadow; a window shadow would outline the whole transparent canvas.
+            panel.hasShadow = false
             panel.hidesOnDeactivate = false
             panel.isMovableByWindowBackground = true
-            panel.contentView = NSHostingView(rootView: RecordingOverlay(model: model,
+            let host = NSHostingView(rootView: RecordingOverlay(model: model,
                 openHub: { [weak self] in self?.openHub() }, onDragEnded: { [weak self] in self?.rememberBarPosition() }))
+            // The panel's size follows the bar scale only, never the bar's content.
+            host.sizingOptions = []
+            panel.contentView = host
             self.panel = panel
         }
         guard let panel else { return }
-        let size = RecordingOverlay.size(for: model)
         let preferences = model.data.settings.appearanceOptions
         let savedScreen = preferences.position.flatMap { position in NSScreen.screens.first { Self.displayID($0) == position.displayID } }
         let screen = savedScreen ?? (panel.isVisible ? panel.screen : nil)
             ?? NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
         if let screen {
-            panel.setFrame(OverlayLayout.frame(screen: screen.frame, visible: screen.visibleFrame, size: size, preferences: preferences), display: true)
+            let scale = preferences.scale
+            let placement = OverlayLayout.placement(screen: screen.frame, visible: screen.visibleFrame, row: Self.restingRow(scale),
+                                                    canvas: CGSize(width: BarStyle.canvas.width * scale, height: BarStyle.canvas.height * scale),
+                                                    inset: BarStyle.inset * scale, preferences: preferences)
+            if model.barExpandsUp != placement.expandsUp { model.barExpandsUp = placement.expandsUp }
+            if panel.frame != placement.frame { panel.setFrame(placement.frame, display: true) }
         }
         panel.orderFrontRegardless()
+    }
+
+    private static func restingRow(_ scale: Double) -> CGSize {
+        CGSize(width: BarStyle.restingWidth * scale, height: BarStyle.rowHeight * scale)
     }
 
     private static func displayID(_ screen: NSScreen) -> UInt32 {
@@ -162,9 +174,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func rememberBarPosition() {
         guard let panel, let screen = panel.screen else { return }
+        let scale = model.data.settings.appearanceOptions.scale
+        let center = OverlayLayout.rowCenter(in: panel.frame, row: Self.restingRow(scale), inset: BarStyle.inset * scale,
+                                             expandsUp: model.barExpandsUp)
         model.data.settings.appearanceOptions.position = BarPosition(displayID: Self.displayID(screen),
-            x: (panel.frame.midX - screen.frame.minX) / screen.frame.width,
-            y: (panel.frame.midY - screen.frame.minY) / screen.frame.height)
+            x: (center.x - screen.frame.minX) / screen.frame.width,
+            y: (center.y - screen.frame.minY) / screen.frame.height)
     }
 
     private static func menuIcon() -> NSImage {
@@ -186,72 +201,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 final class DictationPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-}
-
-struct RecordingOverlay: View {
-    @Bindable var model: AppModel
-    var openHub: () -> Void
-    var onDragEnded: () -> Void = {}
-
-    static func size(for model: AppModel) -> NSSize {
-        let scale = model.data.settings.appearanceOptions.scale
-        let width: CGFloat = switch true {
-        case model.phase == .listening || model.previewingBar: 148
-        case model.isBusy: 124
-        case model.barNotice != nil: 236
-        default: 84
-        }
-        return NSSize(width: width * scale, height: 32 * scale)
-    }
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if model.isBusy {
-                Button { model.cancel() } label: { Image(systemName: "xmark").frame(width: 22, height: 28) }
-                    .help("Cancel dictation (\(model.data.settings.shortcuts.cancel.title))").accessibilityLabel("Cancel dictation")
-                if model.phase == .listening {
-                    InputMeter(samples: model.waveform.samples, sensitivity: model.data.settings.appearanceOptions.sensitivity).frame(maxWidth: .infinity)
-                        .overlay { BarDragHandle(onEnd: onDragEnded) }.help("Drag to move")
-                    Button { model.stop() } label: { Image(systemName: "stop.fill").frame(width: 22, height: 28) }
-                        .help("Finish dictation").accessibilityLabel("Finish dictation")
-                } else {
-                    ProgressView().controlSize(.mini).tint(.white)
-                    Text(model.phase == .preparing ? model.preparationLabel : "Finishing")
-                        .font(.system(size: 10, weight: .medium)).frame(maxWidth: .infinity)
-                        .overlay { BarDragHandle(onEnd: onDragEnded) }.help("Drag to move")
-                }
-            } else {
-                Button { model.start() } label: { Image(systemName: "mic.fill").frame(width: 24, height: 28) }
-                    .help("Start dictation").accessibilityLabel("Start dictation")
-                if let notice = model.barNotice, !model.previewingBar {
-                    Text(notice).font(.system(size: 11, weight: .medium)).lineLimit(1).foregroundStyle(Palette.signal)
-                        .frame(maxWidth: .infinity).overlay { BarDragHandle(onEnd: onDragEnded) }.help(model.status)
-                } else if !model.shortcutReady && !model.previewingBar {
-                    // Without Accessibility the shortcut can't be heard and text can't be pasted. A quiet dot in the
-                    // bar's usual slot says so without changing its shape; the tooltip and click explain the rest.
-                    Button { model.requestAccessibility() } label: {
-                        Circle().fill(Palette.signal).frame(width: 6, height: 6).frame(width: 10, height: 28)
-                    }.help("Shortcut and paste need Accessibility. Click to allow.").accessibilityLabel("Allow Accessibility")
-                } else if model.previewingBar {
-                    InputMeter(samples: [0.08, 0.17, 0.35, 0.65, 0.88, 0.56, 0.24, 0.46, 0.73, 0.95, 0.63, 0.27, 0.1],
-                               sensitivity: model.data.settings.appearanceOptions.sensitivity)
-                        .frame(maxWidth: .infinity).overlay { BarDragHandle(onEnd: onDragEnded) }.help("Drag to move")
-                } else {
-                    Image(systemName: "ellipsis").font(.system(size: 8)).frame(width: 10, height: 28)
-                        .overlay { BarDragHandle(onEnd: onDragEnded) }.help("Drag to move")
-                }
-                Button(action: openHub) { Image(systemName: model.status.isEmpty ? "arrow.up.right" : "text.bubble").frame(width: 24, height: 28) }
-                    .help(model.status.isEmpty ? "Open \(Brand.name)" : model.status).accessibilityLabel("Open \(Brand.name)")
-            }
-        }
-        .padding(.horizontal, 8)
-        .frame(width: Self.size(for: model).width / model.data.settings.appearanceOptions.scale, height: 32)
-        .background(Palette.overlay.opacity(model.data.settings.appearanceOptions.opacity), in: Capsule())
-        .overlay { Capsule().strokeBorder(.white.opacity(0.14)) }
-        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white).buttonStyle(.plain).colorScheme(.dark)
-        .scaleEffect(model.data.settings.appearanceOptions.scale)
-        .frame(width: Self.size(for: model).width, height: Self.size(for: model).height)
-    }
 }
 
 struct BarDragHandle: NSViewRepresentable {
