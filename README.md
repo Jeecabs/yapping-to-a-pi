@@ -1,5 +1,7 @@
 # computer, listen
 
+![You talk. Your Mac types.](assets/readme-hero.png)
+
 You talk. Your Mac types. On-device dictation for macOS, plus a [Pi](https://github.com/badlogic/pi-mono) extension.
 
 **[Download for macOS](https://github.com/Jeecabs/yapping-to-a-pi/releases/latest/download/computer-listen.dmg)** · requires macOS 26 · [computerlisten.com](https://computerlisten.com)
