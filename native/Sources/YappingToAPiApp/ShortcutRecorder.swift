@@ -57,7 +57,7 @@ struct ShortcutRecorder: View {
     }
 
     private func save(_ binding: KeyBinding) {
-        if let problem = model.data.settings.shortcuts.problem(with: binding, for: action) {
+        if let problem = model.data.settings.shortcuts.problem(with: binding, for: action, system: SystemShortcuts.enabled()) {
             model.showStatus(problem)
         } else {
             model.data.settings.shortcuts[action] = binding

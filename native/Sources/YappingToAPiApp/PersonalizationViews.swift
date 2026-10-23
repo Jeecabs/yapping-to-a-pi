@@ -194,65 +194,95 @@ struct RewriteView: View {
     @Bindable var model: AppModel
     @State private var name = ""
     @State private var instruction = ""
+    @State private var editing: UUID?
+    @State private var customError: String?
     var body: some View {
-        PageHeading(title: "say it another way", subtitle: "Polish a draft, build a prompt, or use your own instructions. Review every result before copying.")
+        PageHeading(title: "say it another way", subtitle: "Paste a draft. Pick a direction.")
         Surface {
             VStack(alignment: .leading, spacing: 16) {
                 HStack {
                     Picker("Rewrite as", selection: $model.selectedTransform) {
-                        Text("Polish").tag(Optional<UUID>.none)
-                        ForEach(model.data.transforms) { Text($0.name).tag(Optional($0.id)) }
-                    }.fixedSize()
+                        ForEach(RewritePreset.allCases) { Text($0.title).tag(RewriteChoice.preset($0)) }
+                        if !model.data.transforms.isEmpty {
+                            Section("your rewrites") {
+                                ForEach(model.data.transforms) { Text($0.name).tag(RewriteChoice.custom($0.id)) }
+                            }
+                        }
+                    }.labelsHidden().frame(width: 180, alignment: .leading).accessibilityLabel("Rewrite as")
                     Spacer()
-                    Button("use last dictation") { model.scratchpad = model.latestText }.buttonStyle(LineButtonStyle()).disabled(model.latestText.isEmpty)
+                    Button("use last dictation") { if let text = model.lastDictation { model.scratchpad = text } }
+                        .buttonStyle(LineButtonStyle()).disabled(model.lastDictation == nil)
                 }
                 TextEditor(text: $model.scratchpad).font(.system(size: 14)).scrollContentBackground(.hidden).padding(8)
-                    .frame(minHeight: 160).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Text to rewrite")
+                    .frame(height: 180).background(Palette.sidebar, in: RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Text to rewrite")
+                if let problem = model.transformError ?? model.transformProblem {
+                    Text(problem).font(.system(size: 12)).foregroundStyle(Palette.muted).textSelection(.enabled)
+                }
                 HStack {
-                    MonoLabel("on device · apple intelligence")
+                    if model.transformUndo != nil {
+                        Button("undo", action: model.undoTransform).buttonStyle(LineButtonStyle())
+                    }
                     Spacer()
-                    if model.transforming { ProgressView().controlSize(.small) }
-                    Button("rewrite") { model.runTransform() }.buttonStyle(SignalButtonStyle(compact: true))
-                        .disabled(model.transforming || model.scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if model.transforming {
+                        ProgressView().controlSize(.small).accessibilityLabel("Rewriting")
+                        Button("cancel", action: model.discardTransform).buttonStyle(LineButtonStyle())
+                    }
+                    Button(model.transforming ? "rewriting…" : "rewrite") { model.runTransform() }
+                        .buttonStyle(SignalButtonStyle(compact: true))
+                        .disabled(model.transforming || model.transformProblem != nil || model.scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 if !model.transformResult.isEmpty {
-                    MonoLabel("result", color: Palette.accent).padding(.top, 8)
-                    Text(model.transformResult).textSelection(.enabled).font(.system(size: 14))
-                    HStack {
-                        Button("use result") { model.scratchpad = model.transformResult }.buttonStyle(LineButtonStyle())
-                        Button("undo") { if let original = model.transformOriginal { model.scratchpad = original }; model.transformResult = "" }.buttonStyle(LineButtonStyle())
-                        Spacer()
-                        Button("copy result") { model.copy(model.transformResult) }.buttonStyle(LineButtonStyle())
+                    VStack(alignment: .leading, spacing: 16) {
+                        Hairline()
+                        MonoLabel("another way", color: Palette.accent)
+                        Text(model.transformResult).textSelection(.enabled).font(.system(size: 14))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack {
+                            Button("use result", action: model.applyTransform).buttonStyle(LineButtonStyle())
+                            Button("discard", action: model.discardTransform).buttonStyle(LineButtonStyle())
+                            Spacer()
+                            Button("copy result") { model.copy(model.transformResult) }.buttonStyle(LineButtonStyle())
+                        }
                     }
                 }
             }
         }
-        Surface("your own rewrites") {
-            VStack(alignment: .leading, spacing: 12) {
-                TextField("name", text: $name).textFieldStyle(.roundedBorder)
-                TextField("Instructions, such as ‘Turn this into a short checklist’", text: $instruction, axis: .vertical)
-                    .textFieldStyle(.roundedBorder).lineLimit(2...4)
-                HStack {
-                    Spacer()
-                    Button("add rewrite") {
-                        model.data.transforms.append(.init(name: name.trimmingCharacters(in: .whitespacesAndNewlines), instruction: instruction))
-                        name = ""; instruction = ""
-                    }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || instruction.isEmpty || instruction.count > 1_000 || model.data.transforms.count >= 8).buttonStyle(LineButtonStyle())
-                }
-                ForEach(model.data.transforms) { transform in
-                    Hairline()
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(transform.name).font(.system(size: 13, weight: .medium))
-                            Text(transform.instruction).font(.caption).foregroundStyle(.secondary)
+        Surface {
+            DisclosureGroup("your own rewrites") {
+                VStack(alignment: .leading, spacing: 14) {
+                    ForEach(model.data.transforms) { transform in
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(transform.name).font(.system(size: 13, weight: .medium))
+                                Text(transform.instruction).font(.caption).foregroundStyle(Palette.muted)
+                            }
+                            Spacer()
+                            Button("edit") { editing = transform.id; name = transform.name; instruction = transform.instruction; customError = nil }
+                                .buttonStyle(LineButtonStyle()).accessibilityLabel("Edit \(transform.name)")
+                            Button("delete") { model.removeTransform(transform.id); if editing == transform.id { reset() } }
+                                .buttonStyle(LineButtonStyle(destructive: true)).accessibilityLabel("Delete \(transform.name)")
                         }
-                        Spacer()
-                        Button("delete") { model.data.transforms.removeAll { $0.id == transform.id } }.buttonStyle(LineButtonStyle(destructive: true)).accessibilityLabel("Delete \(transform.name)")
+                        Hairline()
                     }
-                }
-            }
+                    TextField("name", text: $name).textFieldStyle(.roundedBorder)
+                    TextField("what should change?", text: $instruction, axis: .vertical)
+                        .textFieldStyle(.roundedBorder).lineLimit(2...4)
+                    if let customError { Text(customError).font(.caption).foregroundStyle(Palette.muted) }
+                    HStack {
+                        Spacer()
+                        if editing != nil { Button("cancel", action: reset).buttonStyle(LineButtonStyle()) }
+                        Button(editing == nil ? "save rewrite" : "save changes") {
+                            customError = model.saveTransform(name: name, instruction: instruction, replacing: editing)
+                            if customError == nil { reset() }
+                        }
+                        .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || instruction.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .buttonStyle(LineButtonStyle())
+                    }
+                }.padding(.top, 14)
+            }.font(.system(size: 13, weight: .medium))
         }
     }
+    private func reset() { name = ""; instruction = ""; editing = nil; customError = nil }
 }
 
 struct AppSettingsView: View {
@@ -278,6 +308,14 @@ struct AppSettingsView: View {
                         .buttonStyle(LineButtonStyle()).disabled(model.data.settings.shortcuts == .defaults)
                 }
                 if !model.shortcutReady { Label("Enable Accessibility to use the global shortcut.", systemImage: "keyboard").font(.caption).foregroundStyle(.secondary) }
+                if model.globeKeyActs && model.data.settings.shortcuts.usesFunctionKey {
+                    HStack {
+                        Label("macOS also uses 🌐, so fn can open emoji too. Set “Press 🌐 key to” to Do Nothing.", systemImage: "globe")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("keyboard settings", action: model.openKeyboardSettings).buttonStyle(LineButtonStyle())
+                    }
+                }
                 Hairline()
                 Picker("Speech language", selection: $model.data.settings.locale) {
                     if !model.locales.contains(model.data.settings.locale) { Text(model.data.settings.locale).tag(model.data.settings.locale) }

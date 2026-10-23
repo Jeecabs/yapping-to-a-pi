@@ -23,46 +23,39 @@ struct RecordingOverlay: View {
         }
         return BarHint.hints(for: stage, shortcuts: model.data.settings.shortcuts)
     }
-    private var hintTransition: AnyTransition {
-        let insertion: AnyTransition = reduceMotion ? .opacity : .opacity.combined(with: .offset(y: model.barExpandsUp ? 6 : -6))
-        return .asymmetric(insertion: insertion.animation(BarStyle.open.delay(0.04)), removal: .opacity.animation(BarStyle.fade))
-    }
+    private var hintHeight: Double { BarHintCard.height(rows: options.hover == .compact ? 1 : hints.count) }
 
     var body: some View {
         let scale = options.scale
         let up = model.barExpandsUp
         let shape = RoundedRectangle(cornerRadius: BarStyle.radius)
-        VStack(spacing: 0) {
-            if showsHints && up {
-                BarHintList(hints: hints, detail: options.hover)
-                    .padding([.horizontal, .top], BarStyle.hintPadding + 4).padding(.bottom, 2)
-                    .overlay { BarDragHandle(onEnd: onDragEnded) }
-                    .transition(hintTransition)
+        BarControls(model: model, openHub: openHub, onDragEnded: onDragEnded)
+            .frame(width: showsHints ? BarStyle.cardWidth : nil)
+            // The hints hang at a fixed place beside the pill, which doesn't move. Pinned to the card's growing
+            // edge instead, they would start on top of the controls and ride the edge out.
+            .overlay(alignment: up ? .top : .bottom) {
+                if options.hover != .off {
+                    BarHintCard(hints: hints, detail: options.hover, expandsUp: up, shown: showsHints, height: hintHeight,
+                                onDragEnded: onDragEnded)
+                        .offset(y: up ? -hintHeight : hintHeight)
+                }
             }
-            BarControls(model: model, openHub: openHub, onDragEnded: onDragEnded)
-            if showsHints && !up {
-                BarHintList(hints: hints, detail: options.hover)
-                    .padding([.horizontal, .bottom], BarStyle.hintPadding + 4).padding(.top, 2)
-                    .overlay { BarDragHandle(onEnd: onDragEnded) }
-                    .transition(hintTransition)
+            .padding(up ? .top : .bottom, showsHints ? hintHeight : 0)
+            .background { shape.fill(Palette.overlay.opacity(options.opacity)).strokeBorder(.white.opacity(0.14)) }
+            .clipShape(shape)
+            .shadow(color: .black.opacity(0.3), radius: 9, y: 3)
+            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+            .environment(\.colorScheme, .dark)
+            .animation(reduceMotion ? nil : BarStyle.morph, value: model.phase)
+            .animation(reduceMotion ? nil : BarStyle.morph, value: model.barNotice)
+            .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
+            .scaleEffect(scale, anchor: up ? .bottom : .top)
+            // Tracks the pill or card as drawn, after scaling; the transparent rest of the panel lets clicks through.
+            .background(alignment: up ? .bottom : .top) {
+                HoverTracker(onChange: hover).frame(width: cardSize.width * scale, height: cardSize.height * scale)
             }
-        }
-        .frame(width: showsHints ? BarStyle.cardWidth : nil)
-        .background { shape.fill(Palette.overlay.opacity(options.opacity)).strokeBorder(.white.opacity(0.14)) }
-        .clipShape(shape)
-        .shadow(color: .black.opacity(0.3), radius: 9, y: 3)
-        .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .animation(reduceMotion ? nil : BarStyle.morph, value: model.phase)
-        .animation(reduceMotion ? nil : BarStyle.morph, value: model.barNotice)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { cardSize = $0 }
-        .scaleEffect(scale, anchor: up ? .bottom : .top)
-        // Tracks the pill or card as drawn, after scaling; the transparent rest of the panel lets clicks through.
-        .background(alignment: up ? .bottom : .top) {
-            HoverTracker(onChange: hover).frame(width: cardSize.width * scale, height: cardSize.height * scale)
-        }
-        .padding(up ? .bottom : .top, BarStyle.inset * scale)
-        .frame(width: BarStyle.canvas.width * scale, height: BarStyle.canvas.height * scale, alignment: up ? .bottom : .top)
+            .padding(up ? .bottom : .top, BarStyle.inset * scale)
+            .frame(width: BarStyle.canvas.width * scale, height: BarStyle.canvas.height * scale, alignment: up ? .bottom : .top)
     }
 
     /// Opens after a short rest and closes after a short grace, so passing over or slipping off doesn't flicker.

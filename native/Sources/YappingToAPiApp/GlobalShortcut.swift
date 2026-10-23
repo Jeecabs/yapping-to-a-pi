@@ -41,6 +41,10 @@ final class GlobalShortcut {
         return true
     }
 
+    /// How long the key must stay down before recording starts. It matches the longest press that still counts
+    /// as a tap, and gives a combination like fn ← time to show its second key before anything is heard.
+    static let holdDelay = Duration.milliseconds(220)
+
     func reset() { holdTask?.cancel(); holdTask = nil; heldKey = nil; gesture.reset() }
 
     func uninstall() {
@@ -79,6 +83,13 @@ final class GlobalShortcut {
                 dispatch(gesture.toggle(), key: nil)
                 return true
             }
+            if down, let heldKey, heldKey != code, !gesture.active,
+               bindings.holdAction(keyCode: heldKey, modifiers: modifiers) == nil {
+                // Another modifier joined before recording began, so this is someone else's shortcut, such as
+                // ⌘ fn. Let it through and never start. ⌃ joining fn still turns the hold into edit.
+                abandonHold()
+                return false
+            }
             if down, heldKey == nil, bindings.holdAction(keyCode: code, modifiers: modifiers) != nil {
                 press(code)
                 return true
@@ -114,10 +125,8 @@ final class GlobalShortcut {
         }
         if type == .keyDown, let heldKey, KeyBinding.modifierKeys[heldKey] != nil {
             // Another key while a modifier hold key is down is a normal combination, such as fn-F6 for Pi.
-            holdTask?.cancel()
             if gesture.active && !gesture.handsFree { onCancel?() }
-            gesture.reset()
-            self.heldKey = nil
+            abandonHold()
         }
         return false
     }
@@ -127,10 +136,16 @@ final class GlobalShortcut {
         dispatch(gesture.press(at: ProcessInfo.processInfo.systemUptime), key: code)
         holdTask?.cancel()
         holdTask = Task { [weak self] in
-            do { try await Task.sleep(for: .milliseconds(180)) } catch { return }
+            do { try await Task.sleep(for: Self.holdDelay) } catch { return }
             guard let self else { return }
             dispatch(gesture.hold(), key: heldKey)
         }
+    }
+
+    private func abandonHold() {
+        holdTask?.cancel()
+        gesture.reset()
+        heldKey = nil
     }
 
     private func release() {

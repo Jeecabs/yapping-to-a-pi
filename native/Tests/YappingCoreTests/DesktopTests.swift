@@ -91,6 +91,9 @@ struct DesktopTests {
         #expect(bindings.holdAction(keyCode: 63, modifiers: [.function]) == .talk)
         #expect(bindings.holdAction(keyCode: 63, modifiers: [.function, .control]) == .editSelection)
         #expect(bindings.holdAction(keyCode: 49, modifiers: [.function]) == nil)
+        // Another modifier with the hold key is a different shortcut, such as ⌘ fn.
+        #expect(bindings.holdAction(keyCode: 63, modifiers: [.function, .command]) == nil)
+        #expect(bindings.holdAction(keyCode: 63, modifiers: [.function, .control, .shift]) == nil)
         #expect(bindings.handsFree.matchesPress(keyCode: 49, modifiers: [.function]))
         #expect(!bindings.handsFree.matchesPress(keyCode: 49, modifiers: [.function, .shift]))
         // F-keys always report fn; that must not stop an F5 binding from matching.
@@ -108,6 +111,13 @@ struct DesktopTests {
         #expect(bindings.problem(with: KeyBinding(keyCode: 49, modifiers: .command, keyLabel: "space"), for: .handsFree) != nil)
         #expect(bindings.problem(with: KeyBinding(keyCode: 61, keyLabel: "right ⌥"), for: .cancel) != nil)
         #expect(bindings.problem(with: KeyBinding(keyCode: 61, keyLabel: "right ⌥"), for: .talk) == nil)
+        #expect(bindings.problem(with: KeyBinding(keyCode: 56, keyLabel: "left ⇧"), for: .talk) != nil)
+        #expect(bindings.problem(with: KeyBinding(keyCode: 55, keyLabel: "left ⌘"), for: .talk) != nil)
+        let inputSource = KeyBinding(keyCode: 49, modifiers: .control, keyLabel: "space")
+        #expect(bindings.problem(with: inputSource, for: .handsFree, system: [inputSource]) != nil)
+        #expect(bindings.problem(with: inputSource, for: .handsFree) == nil)
+        #expect(bindings.usesFunctionKey)
+        #expect(!ShortcutBindings(hotkey: .rightOption).usesFunctionKey)
     }
 
     @Test("Apple Intelligence cleanup is off until the user opts in")
@@ -130,6 +140,28 @@ struct DesktopTests {
         try corrupt.write(to: store.url)
         #expect(throws: (any Error).self) { try store.load() }
         #expect(try Data(contentsOf: store.url) == corrupt)
+    }
+
+    @Test("Legacy rewrite defaults migrate without losing custom or edited instructions")
+    func rewriteMigration() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = DesktopStore(url: directory.appendingPathComponent("desktop.json"))
+        var data = DesktopData()
+        let edited = TextTransform(name: "Polish", instruction: "Keep my spelling and make it warmer.")
+        let custom = TextTransform(name: "meeting notes", instruction: "Make a checklist.")
+        data.transforms = [
+            .init(name: "Polish", instruction: "Improve clarity and grammar while preserving the meaning and tone."),
+            .init(name: "Prompt engineer", instruction: "Rewrite as a clear, specific prompt for an AI assistant. Preserve the user's intent, constraints, and all provided details. Do not invent requirements."),
+            edited, custom
+        ]
+        try store.save(data)
+        let loaded = try store.load()
+        #expect(loaded.transforms == [edited, custom])
+        #expect(loaded.settings == data.settings)
+        #expect(Set(RewritePreset.allCases.map(\.title)).count == RewritePreset.allCases.count)
+        try store.save(loaded)
+        #expect(try store.load() == loaded)
     }
 
     @Test("Retention is based on age and never-store removes history")

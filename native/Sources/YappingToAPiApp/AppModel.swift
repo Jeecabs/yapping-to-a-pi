@@ -24,6 +24,10 @@ enum AppPage: String, CaseIterable, Identifiable {
     }
 }
 
+enum RewriteChoice: Hashable {
+    case preset(RewritePreset), custom(UUID)
+}
+
 enum RecordingPhase: Equatable {
     case idle, preparing, listening, finishing, writing
     var title: String {
@@ -51,6 +55,8 @@ final class AppModel {
     var microphoneGranted = false
     var accessibilityGranted = false
     var shortcutReady = false
+    /// macOS also acts on 🌐, so an fn binding can open emoji alongside dictation.
+    var globeKeyActs = false
     var modelInstalled = false
     var writerStatus: String?
     var locales: [String] = []
@@ -60,11 +66,19 @@ final class AppModel {
     var isCommand = false
     var startedAt: Date?
     var launchAtLogin = false
-    var scratchpad = ""
-    var selectedTransform: UUID?
-    var transforming = false
-    var transformOriginal: String?
-    var transformResult = ""
+    var scratchpad = "" {
+        didSet {
+            if scratchpad != oldValue { discardTransform(); transformUndo = nil }
+        }
+    }
+    var selectedTransform: RewriteChoice = .preset(.cleanUp) {
+        didSet { if selectedTransform != oldValue { discardTransform() } }
+    }
+    private(set) var transforming = false
+    private(set) var transformOriginal: String?
+    private(set) var transformResult = ""
+    private(set) var transformError: String?
+    private(set) var transformUndo: String?
     var setupBusy = false
     var previewingBar = false
     /// A short line the floating bar shows after a dictation: where the text went, or why it didn't paste.
@@ -79,12 +93,14 @@ final class AppModel {
     @ObservationIgnored var presentationChanged: (() -> Void)?
     @ObservationIgnored var recordingEnded: (() -> Void)?
     @ObservationIgnored private let store: DesktopStore
+    @ObservationIgnored private let rewriteText: @MainActor (String, String, String) async throws -> String
     @ObservationIgnored private var readOnly = false
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var session: HelperSession?
     @ObservationIgnored private var sessionTask: Task<Void, Never>?
     @ObservationIgnored private var timeoutTask: Task<Void, Never>?
     @ObservationIgnored private var transformTask: Task<Void, Never>?
+    @ObservationIgnored private var transformID = UUID()
     @ObservationIgnored private var destination: TextDestination?
     @ObservationIgnored private var sessionID = UUID()
     @ObservationIgnored private var didListen = false
@@ -104,11 +120,13 @@ final class AppModel {
         return duration > 0 ? Int(Double(totalWords) / duration * 60) : 0
     }
 
-    init() {
+    init(store: DesktopStore? = nil,
+         rewriteText: @escaping @MainActor (String, String, String) async throws -> String = LocalWriter.edit) {
         let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Yapping to a Pi", isDirectory: true)
-        store = DesktopStore(url: directory.appendingPathComponent("desktop.json"))
-        do { data = try store.load() }
+        self.store = store ?? DesktopStore(url: directory.appendingPathComponent("desktop.json"))
+        self.rewriteText = rewriteText
+        do { data = try self.store.load() }
         catch { data = DesktopData(); readOnly = true; storageError = "Could not read saved data: \(error.localizedDescription) Your file has been preserved." }
         data.pruneHistory()
         loaded = true
@@ -117,6 +135,7 @@ final class AppModel {
     func refreshReadiness() async {
         microphoneGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
         accessibilityGranted = AXIsProcessTrusted()
+        globeKeyActs = SystemShortcuts.globeKeyActs
         writerStatus = LocalWriter.unavailableReason
         inputDevice = AVCaptureDevice.default(for: .audio)?.localizedName ?? "No microphone"
         audioInputs = AudioInputs.available()
@@ -145,18 +164,21 @@ final class AppModel {
         watchAccessibility()
     }
 
-    /// macOS sends no notification when Accessibility is granted. Poll until it is, then install the
-    /// shortcut, so the hotkey works without relaunching.
+    /// macOS sends no notification when Accessibility is granted. Poll until it is and the shortcut has
+    /// installed, so the hotkey works without relaunching. Trust alone isn't enough: the event tap can still
+    /// fail just after a grant, and stopping then would leave the bar asking for access it already has.
     func watchAccessibility() {
-        guard accessibilityWatch == nil, !AXIsProcessTrusted() else { return }
+        guard accessibilityWatch == nil else { return }
         accessibilityWatch = Task { [weak self] in
-            while !Task.isCancelled, !AXIsProcessTrusted() {
+            while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
+                guard let self, !Task.isCancelled else { return }
+                guard AXIsProcessTrusted() else { continue }
+                self.accessibilityGranted = true
+                self.configurationChanged?()
+                if self.shortcutReady { break }
             }
-            guard let self, !Task.isCancelled else { return }
-            self.accessibilityWatch = nil
-            self.accessibilityGranted = true
-            self.configurationChanged?()
+            self?.accessibilityWatch = nil
         }
     }
 
@@ -169,6 +191,12 @@ final class AppModel {
             do { try await Task.sleep(for: notice.duration) } catch { return }
             self?.barNotice = nil
             self?.presentationChanged?()
+        }
+    }
+
+    func openKeyboardSettings() {
+        if let url = URL(string: "x-apple.systempreferences:com.apple.Keyboard-Settings.extension") {
+            NSWorkspace.shared.open(url)
         }
     }
 
@@ -404,20 +432,103 @@ final class AppModel {
         } catch { status = "Could not change login setting: \(error.localizedDescription)" }
     }
 
-    func runTransform() {
-        guard !transforming, let transform = data.transforms.first(where: { $0.id == selectedTransform }) ?? data.transforms.first else { return }
+    var transformInstruction: String? {
+        switch selectedTransform {
+        case .preset(let preset): preset.instruction
+        case .custom(let id): data.transforms.first { $0.id == id }?.instruction
+        }
+    }
+
+    var transformProblem: String? {
+        if let writerStatus { return writerStatus }
+        guard let instruction = transformInstruction else { return "Choose a rewrite." }
+        if scratchpad.trimmingCharacters(in: .whitespacesAndNewlines).count + instruction.count > LocalWriter.editInputLimit {
+            return "Try a shorter passage."
+        }
+        return nil
+    }
+
+    var lastDictation: String? {
+        if !latestText.isEmpty { return latestText }
+        return data.history.first { !$0.isCommand && !$0.text.isEmpty }?.text
+    }
+
+    @discardableResult
+    func runTransform() -> Task<Void, Never>? {
+        guard !transforming else { return nil }
+        discardTransform()
+        if let problem = transformProblem { transformError = problem; return nil }
+        guard let instruction = transformInstruction else { return nil }
+        let original = scratchpad
         let source = scratchpad.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !source.isEmpty else { return }
+        guard !source.isEmpty else { return nil }
+        let locale = data.settings.locale
+        let id = transformID
         transforming = true
         transformTask = Task {
-            defer { transforming = false }
+            defer {
+                if transformID == id { transforming = false; transformTask = nil }
+            }
             do {
-                let result = try await LocalWriter.edit(source, instruction: transform.instruction, locale: data.settings.locale)
+                let result = try await rewriteText(source, instruction, locale)
                 try Task.checkCancellation()
-                transformOriginal = source; transformResult = result
+                guard transformID == id else { return }
+                guard !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    throw AppFailure("No text came back. Try again.")
+                }
+                transformOriginal = original; transformResult = result
             } catch is CancellationError { }
-            catch { status = error.localizedDescription }
+            catch { if transformID == id { transformError = error.localizedDescription } }
         }
+        return transformTask
+    }
+
+    func discardTransform() {
+        transformID = UUID()
+        transformTask?.cancel(); transformTask = nil
+        transforming = false
+        transformOriginal = nil; transformResult = ""; transformError = nil
+    }
+
+    func applyTransform() {
+        guard let original = transformOriginal, scratchpad == original, !transformResult.isEmpty else { return }
+        scratchpad = transformResult
+        discardTransform()
+        transformUndo = scratchpad == original ? nil : original
+    }
+
+    func undoTransform() {
+        guard let original = transformUndo else { return }
+        scratchpad = original
+        transformUndo = nil
+    }
+
+    func saveTransform(name: String, instruction: String, replacing id: UUID? = nil) -> String? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let instruction = instruction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 60 else { return "Use a name of 1 to 60 characters." }
+        guard !instruction.isEmpty, instruction.count <= 1_000 else { return "Use instructions of 1 to 1,000 characters." }
+        let names = RewritePreset.allCases.map(\.title) + data.transforms.filter { $0.id != id }.map(\.name)
+        guard !names.contains(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) else {
+            return "That name is already in use."
+        }
+        let index = data.transforms.firstIndex { $0.id == id }
+        guard index != nil || data.transforms.count < 8 else { return "You can save up to 8 rewrites." }
+        discardTransform()
+        if let index {
+            data.transforms[index].name = name; data.transforms[index].instruction = instruction
+            selectedTransform = .custom(data.transforms[index].id)
+        } else {
+            let transform = TextTransform(name: name, instruction: instruction)
+            data.transforms.append(transform)
+            selectedTransform = .custom(transform.id)
+        }
+        return nil
+    }
+
+    func removeTransform(_ id: UUID) {
+        if selectedTransform == .custom(id) { selectedTransform = .preset(.cleanUp) }
+        data.transforms.removeAll { $0.id == id }
     }
 
     func exportHistory() {
@@ -431,7 +542,7 @@ final class AppModel {
 
     func openDataFolder() { NSWorkspace.shared.open(store.url.deletingLastPathComponent()) }
 
-    func shutdown() { cleanup(); transformTask?.cancel(); persist() }
+    func shutdown() { cleanup(); discardTransform(); persist() }
 
     private func persist() {
         guard loaded, !readOnly else { return }

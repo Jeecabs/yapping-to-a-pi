@@ -112,21 +112,31 @@ public struct ShortcutBindings: Codable, Equatable, Sendable {
         }
     }
 
-    /// Which hold action a key starts given the modifiers held now. Talk and edit may share a key
-    /// (fn and ⌃ fn); the binding whose modifiers are all held, with the most modifiers, wins.
+    /// Which hold action a key starts given the modifiers held now. Talk and edit may share a key (fn and ⌃ fn).
+    /// Modifiers must match exactly, so ⌘ fn or ⇧ F5 is someone else's shortcut, not dictation.
     public func holdAction(keyCode: UInt16, modifiers: KeyModifiers) -> Action? {
-        [Action.editSelection, .talk]
-            .filter { action in
-                let binding = self[action]
-                let held = KeyBinding.normalized(modifiers, keyCode: keyCode).subtracting(binding.ownModifier ?? [])
-                return binding.keyCode == keyCode && binding.modifiers.isSubset(of: held)
-            }
-            .max { self[$0].modifiers.rawValue.nonzeroBitCount < self[$1].modifiers.rawValue.nonzeroBitCount }
+        [Action.editSelection, .talk].first { action in
+            let binding = self[action]
+            let held = KeyBinding.normalized(modifiers, keyCode: keyCode).subtracting(binding.ownModifier ?? [])
+            return binding.keyCode == keyCode && binding.modifiers == held
+        }
     }
 
+    /// True when a binding uses fn, which macOS may also claim for the 🌐 key (emoji, input source, dictation).
+    public var usesFunctionKey: Bool {
+        Action.allCases.contains { self[$0].keyCode == Self.fn.keyCode || self[$0].modifiers.contains(.function) }
+    }
+
+    /// Modifier keys pressed constantly while typing and in most shortcuts; holding one can't mean dictation.
+    static let typingModifiers: Set<UInt16> = [56, 60, 55]
+
     /// A sentence for the user if `binding` can't be used for `action`, otherwise nil.
-    public func problem(with binding: KeyBinding, for action: Action) -> String? {
+    /// `system` is the shortcuts macOS has enabled, so a binding never fights one of them.
+    public func problem(with binding: KeyBinding, for action: Action, system: [KeyBinding] = []) -> String? {
         if action == .cancel, binding.isModifierOnly { return "Cancel needs a regular key, such as esc." }
+        if binding.isModifierOnly, binding.modifiers.isEmpty, Self.typingModifiers.contains(binding.keyCode) {
+            return "\(binding.keyLabel) is used for typing and most shortcuts. Try fn or right ⌥."
+        }
         if action != .cancel, !binding.isModifierOnly, !binding.isFunctionKey, binding.modifiers.isEmpty {
             return "Add a modifier such as ⌃ or ⌥, so typing \(binding.keyLabel) still works."
         }
@@ -136,6 +146,9 @@ public struct ShortcutBindings: Codable, Equatable, Sendable {
         }
         if let clash = Action.allCases.first(where: { $0 != action && self[$0] == binding }) {
             return "\(binding.title) is already used for \(clash.title.lowercased())."
+        }
+        if system.contains(where: { $0.matchesPress(keyCode: binding.keyCode, modifiers: binding.modifiers) }) {
+            return "\(binding.title) is a macOS shortcut. Choose another, or turn it off in Keyboard settings."
         }
         return nil
     }

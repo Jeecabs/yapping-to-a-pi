@@ -15,6 +15,8 @@ Hold a key, talk, let go. The text is pasted wherever you were typing, and the b
 
 Every shortcut can be changed in Settings. The app needs Microphone and Accessibility access, which it uses to hear the shortcut and paste.
 
+In Rewrite, clean up a draft, shorten it, make a list, or turn notes into a prompt. Review the result before using or copying it. You can also save your own instructions.
+
 **Private by default.** Speech is transcribed on your Mac with Apple's Speech framework. Audio is never saved. There's no account, cloud, or analytics. Apple Intelligence cleanup is optional and off by default.
 
 ## Pi extension
