@@ -29,7 +29,7 @@ pi install https://github.com/Jeecabs/yapping-to-a-pi
 
 Press **F6** to start and stop. The transcript lands at your cursor as editable text and is never sent automatically. Run `/dictation settings` to change the shortcut or language, or `/dictation doctor` if something's off. macOS grants microphone access to the terminal that runs Pi.
 
-Requires Node 22.19+, Pi 0.85+, and Xcode Command Line Tools with Swift 6.2+.
+Requires Node 22.19+, Pi 1.5+, and Xcode Command Line Tools with Swift 6.2+.
 
 ## Development
 
