@@ -289,6 +289,8 @@ export async function captureShortcut(
   if (ctx.mode !== "tui") return undefined;
   return ctx.ui.custom<string | undefined>((tui, theme, _keybindings, done) =>
     new ShortcutRecorder(tui, theme, currentShortcut, done),
+    // The recorder waits on a keypress, so terminals showing pi's program status should see it as blocked.
+    { blocked: { kind: "question", message: "Press the new dictation shortcut" } },
   );
 }
 
