@@ -12,7 +12,7 @@ it("routes fullscreen mic clicks without stealing editor focus or submitting the
     start(onInput) { input = onInput; },
     stop() {}, async drainInput() {}, write() {}, moveBy() {}, hideCursor() {},
     showCursor() {}, clearLine() {}, clearFromCursor() {}, clearScreen() {},
-    setTitle() {}, setProgress() {},
+    setTitle() {}, setProgress() {}, setProgramStatus() {},
   };
   const tui = new TuiAltScreen(terminal);
   const editor = new Input();
