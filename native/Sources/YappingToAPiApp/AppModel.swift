@@ -332,17 +332,20 @@ final class AppModel {
         let duration = Date().timeIntervalSince(startedAt ?? Date())
         let target = destination
         let command = isCommand
-        var text = TextRules.applyVocabulary(original, entries: recordingVocabulary)
+        let spoken = TextRules.applyVocabulary(original, entries: recordingVocabulary)
+        var text = spoken
         var note = ""
         do {
             if command {
                 phase = .writing; presentationChanged?()
                 text = try await LocalWriter.edit(target?.selectedText ?? "", instruction: text, locale: recordingSettings.locale)
             } else if (recordingSettings.polish && recordingStyle != .verbatim) || !recordingSettings.outputLanguage.isEmpty {
+                // The words are safe before the model sees them: cancelling a slow tidy-up keeps the transcript.
+                latestText = spoken
                 phase = .writing; presentationChanged?()
                 do {
                     text = try await LocalWriter.polish(text, style: recordingStyle, locale: recordingSettings.locale,
-                                                      app: target?.name ?? Brand.name, context: recordingSettings.useContext ? target?.context ?? "" : "",
+                                                      context: recordingSettings.useContext ? target?.context ?? "" : "",
                                                       outputLanguage: recordingSettings.outputLanguage)
                 } catch {
                     // Keep the complete transcript when the optional writing model is unavailable.
@@ -351,7 +354,9 @@ final class AppModel {
             }
             guard sessionID == id, !Task.isCancelled else { return }
             if !command {
-                text = TextRules.applyVocabulary(text, entries: recordingVocabulary)
+                // The model can respell a dictionary word, so put it back. Untouched text was corrected once
+                // already, and a second pass would let one entry trigger another.
+                if text != spoken { text = TextRules.applyVocabulary(text, entries: recordingVocabulary) }
                 text = TextRules.expandSnippets(text, snippets: recordingSnippets)
             }
             latestText = text
