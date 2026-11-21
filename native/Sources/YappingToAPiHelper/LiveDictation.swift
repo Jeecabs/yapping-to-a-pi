@@ -2,6 +2,7 @@
 import Foundation
 import Speech
 import AudioToolbox
+import Synchronization
 import YappingCore
 
 final class AudioCapture: @unchecked Sendable {
@@ -15,6 +16,8 @@ final class AudioCapture: @unchecked Sendable {
     private var continuation: Buffers.Continuation?
     private var configurationObserver: (any NSObjectProtocol)?
     private var running = false
+    /// Configuration changes the engine has reported, so choosing a microphone can wait for the one it causes.
+    private let reportedChanges = Atomic<Int>(0)
 
     init(deviceID: AudioDeviceID? = nil, onInputChange: @escaping @Sendable () -> Void) {
         self.deviceID = deviceID
@@ -32,18 +35,21 @@ final class AudioCapture: @unchecked Sendable {
             queue: nil
         ) { [weak self] _ in
             guard let self else { return }
+            reportedChanges.add(1, ordering: .relaxed)
             restartQueue.async { self.restartAfterConfigurationChange() }
         }
 
+        // Held until the engine runs. A change reported while it is still starting would otherwise start it a
+        // second time from the restart queue, and installing a second tap is an uncaught exception.
         lock.lock()
         self.continuation = continuation
         configurationObserver = observer
         running = true
-        lock.unlock()
-
         do {
             try startEngine(yieldingTo: continuation)
+            lock.unlock()
         } catch {
+            lock.unlock()
             stop()
             throw error
         }
@@ -72,13 +78,7 @@ final class AudioCapture: @unchecked Sendable {
     private func startEngine(yieldingTo continuation: Buffers.Continuation) throws {
         let input = engine.inputNode
         input.removeTap(onBus: 0)
-        if var deviceID {
-            guard let unit = input.audioUnit,
-                  AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
-                                       &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size)) == noErr else {
-                throw HelperFailure.microphoneUnavailable
-            }
-        }
+        try select(deviceID, on: input)
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else {
             throw HelperFailure.microphoneUnavailable
@@ -97,6 +97,25 @@ final class AudioCapture: @unchecked Sendable {
 
         engine.prepare()
         try engine.start()
+    }
+
+    /// Points the engine at the chosen microphone, then waits for the engine to report the change, which it does
+    /// about 100 ms later whether or not it is running. An engine already running by then is stopped by the
+    /// report when the new microphone's format differs from the old one's, and restarting it lost the first
+    /// fifth of a second after "listening". Started after the report, it starts once.
+    private func select(_ deviceID: AudioDeviceID?, on input: AVAudioInputNode) throws {
+        guard var deviceID else { return }
+        guard let unit = input.audioUnit else { throw HelperFailure.microphoneUnavailable }
+        let size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var current = AudioDeviceID(0)
+        var currentSize = size
+        if AudioUnitGetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                &current, &currentSize) == noErr, current == deviceID { return }
+        let reported = reportedChanges.load(ordering: .relaxed)
+        guard AudioUnitSetProperty(unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+                                   &deviceID, size) == noErr else { throw HelperFailure.microphoneUnavailable }
+        let deadline = ContinuousClock.now + .milliseconds(300)
+        while reportedChanges.load(ordering: .relaxed) == reported, ContinuousClock.now < deadline { usleep(5_000) }
     }
 
     private func restartAfterConfigurationChange() {
@@ -145,6 +164,12 @@ struct LiveDictation {
     let emitter: ProtocolEmitter
     var inputUID: String? = nil
     var emitMeter = false
+
+    /// How long capture runs on after a stop request. The end of the last word is still on its way through the
+    /// audio hardware when a key is released, and stopping the engine drops whatever the tap has not delivered.
+    /// Losing 150 ms from the end of a sentence changed its last word in one of six test recordings, and
+    /// 300 ms in four.
+    static let stopTail = Duration.milliseconds(200)
 
     func run() async throws {
         let stopSignal = StopSignal()
@@ -310,6 +335,7 @@ struct LiveDictation {
                 switch event {
                 case .stop:
                     await emitter.state("finalizing", locale: localeIdentifier)
+                    try? await Task.sleep(for: Self.stopTail)
                     capture.stop()
                     try await audioTask.value
                     inputBuilder.finish()
@@ -437,12 +463,13 @@ enum HelperFailure: LocalizedError {
             "No usable microphone input is available."
         case .noCompatibleAudioFormat:
             "No microphone format is compatible with the on-device speech model."
+        // Each client says what became of the text so far: Pi inserts its preview, the app keeps it to copy.
         case .audioQueueOverflow:
-            "Microphone audio fell behind; no transcript was inserted. Try again."
+            "Microphone audio fell behind, so dictation stopped."
         case .analyzerInputOverflow:
-            "Speech analysis fell behind; no transcript was inserted. Try again."
+            "Speech analysis fell behind, so dictation stopped."
         case .microphoneChanged(let message):
-            "The microphone changed and could not be reopened; no transcript was inserted. \(message)"
+            "The microphone changed and could not be reopened, so dictation stopped. \(message)"
         case .pipelineFailed(let message):
             "Dictation failed: \(message)"
         }
