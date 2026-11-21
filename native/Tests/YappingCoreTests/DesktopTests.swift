@@ -27,6 +27,40 @@ struct DesktopTests {
         #expect(gesture.release(at: 5) == nil)
     }
 
+    @Test("The shortcut follows a recording it did not start, and forgets one that never started")
+    func gestureFollowsTheRecorder() {
+        // Started from the bar's microphone button: one tap of the hold key, or one toggle, finishes it.
+        var gesture = ShortcutGesture()
+        gesture.sync(recording: true)
+        #expect(gesture.handsFree)
+        #expect(gesture.press(at: 1) == .stop)
+        #expect(gesture.hold() == nil)
+        #expect(gesture.release(at: 1.5) == nil)
+        gesture.sync(recording: false)
+        gesture.sync(recording: true)
+        #expect(gesture.toggle() == .stop)
+
+        // A hands-free start the recorder refused, such as in a password field, must not swallow the next hold.
+        gesture = ShortcutGesture()
+        #expect(gesture.toggle() == .start)
+        gesture.sync(recording: false)
+        #expect(!gesture.handsFree && !gesture.active)
+        #expect(gesture.press(at: 2) == nil)
+        #expect(gesture.hold() == .start)
+        gesture.sync(recording: true)
+        #expect(!gesture.handsFree)
+        #expect(gesture.release(at: 3) == .stop)
+
+        // A refused hold ends quietly when the key comes up.
+        gesture = ShortcutGesture()
+        #expect(gesture.press(at: 4) == nil)
+        #expect(gesture.hold() == .start)
+        gesture.sync(recording: false)
+        #expect(gesture.release(at: 5) == nil)
+        #expect(gesture.press(at: 6) == nil)
+        #expect(gesture.hold() == .start)
+    }
+
     @Test("Dictionary matching is bounded, longest first, and never cascades")
     func vocabulary() {
         let entries = [VocabularyEntry(spoken: "pie", written: "Pi"),

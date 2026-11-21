@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 
 @MainActor
 struct TextDestination {
@@ -12,15 +13,24 @@ struct TextDestination {
     var name: String { app.localizedName ?? "App" }
     var bundleID: String { app.bundleIdentifier ?? "" }
 
-    static func capture() -> TextDestination? {
+    /// Where the text will go. `content` also reads the field's text and selection, which only a voice edit
+    /// and nearby-text spelling use; plain dictation leaves what is in the field unread.
+    static func capture(content: Bool) -> TextDestination? {
         guard let app = NSWorkspace.shared.frontmostApplication,
               app.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return nil }
         let element = focusedElement()
         let subrole = element.flatMap { stringAttribute($0, kAXSubroleAttribute) }
-        return TextDestination(app: app, element: element, selection: element.flatMap(selectedRange),
-                               selectedText: element.flatMap { stringAttribute($0, kAXSelectedTextAttribute) } ?? "",
-                               originalValue: element.flatMap { stringAttribute($0, kAXValueAttribute) },
+        let read = content ? element : nil
+        return TextDestination(app: app, element: element, selection: read.flatMap(selectedRange),
+                               selectedText: read.flatMap { stringAttribute($0, kAXSelectedTextAttribute) } ?? "",
+                               originalValue: read.flatMap { stringAttribute($0, kAXValueAttribute) },
                                secure: subrole == kAXSecureTextFieldSubrole)
+    }
+
+    /// Every Accessibility call here waits on another app, on the thread that also filters the keyboard. An
+    /// app that has hung would otherwise hold up typing everywhere for the six second default.
+    static func boundAccessibilityWaits() {
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), 1)
     }
 
     var context: String {
@@ -65,9 +75,10 @@ struct TextDestination {
             throw AppFailure("Copied. Not pasted into a password field.")
         }
         let before = element.flatMap(editState)
+        let key = pasteKey()
         guard let source = CGEventSource(stateID: .combinedSessionState),
-              let down = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
-              let up = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+              let down = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: true),
+              let up = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false) else {
             throw AppFailure("Copied. Could not paste into \(app.localizedName ?? "the app").")
         }
         down.flags = .maskCommand
@@ -100,6 +111,35 @@ struct TextDestination {
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
+    }
+
+    /// The key that types "v" with ⌘ held on the current keyboard layout. Apps match ⌘V by the character, so
+    /// the key in QWERTY's V position is ⌘K on Dvorak and ⌘C on Turkish F.
+    static func pasteKey() -> CGKeyCode {
+        guard let layout = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return qwertyV }
+        return keyCode(typing: "v", on: layout) ?? qwertyV
+    }
+
+    private static let qwertyV: CGKeyCode = 9
+
+    static func keyCode(typing character: String, on layout: TISInputSource) -> CGKeyCode? {
+        guard let property = TISGetInputSourceProperty(layout, kTISPropertyUnicodeKeyLayoutData) else { return nil }
+        let data = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
+        // Layouts such as Dvorak – QWERTY ⌘ and Russian type different characters while ⌘ is down.
+        let command = UInt32(cmdKey >> 8) & 0xFF
+        return data.withUnsafeBytes { bytes -> CGKeyCode? in
+            guard let keyboard = bytes.bindMemory(to: UCKeyboardLayout.self).baseAddress else { return nil }
+            for key in CGKeyCode(0)..<128 {
+                var deadKeys: UInt32 = 0
+                var length = 0
+                var characters = [UniChar](repeating: 0, count: 4)
+                let status = UCKeyTranslate(keyboard, key, UInt16(kUCKeyActionDown), command, UInt32(LMGetKbdType()),
+                                            OptionBits(kUCKeyTranslateNoDeadKeysMask), &deadKeys, characters.count,
+                                            &length, &characters)
+                if status == noErr, String(utf16CodeUnits: characters, count: length).lowercased() == character { return key }
+            }
+            return nil
+        }
     }
 
     static func focusedElement() -> AXUIElement? {

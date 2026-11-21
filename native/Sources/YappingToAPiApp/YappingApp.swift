@@ -69,10 +69,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shortcut.onStop = { [weak model] in model?.stop() }
         shortcut.onCancel = { [weak model] in model?.cancel() }
         shortcut.isRecording = { [weak model] in model?.isBusy == true }
+        shortcut.isCapturing = { [weak model] in model?.isCapturing == true }
         shortcut.isSuspended = { [weak model] in model?.recordingShortcut == true }
         model.recordingEnded = { [weak shortcut] in shortcut?.reset() }
         model.configurationChanged = { [weak self] in self?.configure() }
         model.presentationChanged = { [weak self] in self?.presentStatus() }
+        TextDestination.boundAccessibilityWaits()
+        // A display that is unplugged, rearranged or resized moves the screen out from under the bar.
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.presentStatus() }
+        }
         createStatusItem()
         configure()
         // SwiftUI creates the window. Opening the app never requests permissions or starts audio,

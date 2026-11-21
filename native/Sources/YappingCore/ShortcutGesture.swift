@@ -46,6 +46,14 @@ public struct ShortcutGesture: Sendable {
         return .start
     }
 
+    /// Brings the gesture in line with the recorder, which the bar's buttons and the menu also start, and which
+    /// can refuse to start at all. A recording the gesture did not begin is hands-free: the next press or
+    /// toggle ends it. A recording that never began leaves nothing to end.
+    public mutating func sync(recording: Bool) {
+        if recording, !active { handsFree = true; active = true; lastTap = nil }
+        if !recording, active { handsFree = false; active = false }
+    }
+
     public mutating func reset() {
         pressedAt = nil; lastTap = nil; handsFree = false; active = false; suppressHold = false
     }

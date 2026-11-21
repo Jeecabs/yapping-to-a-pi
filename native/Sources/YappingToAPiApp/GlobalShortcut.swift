@@ -16,6 +16,8 @@ final class GlobalShortcut {
     var onStop: (() -> Void)?
     var onCancel: (() -> Void)?
     var isRecording: (() -> Bool)?
+    /// True while the microphone is open or opening. The bar and the menu start recordings too.
+    var isCapturing: (() -> Bool)?
     /// While Settings records a new shortcut, keys go to the recorder instead of starting dictation.
     var isSuspended: (() -> Bool)?
 
@@ -54,6 +56,15 @@ final class GlobalShortcut {
         source = nil; tap = nil
     }
 
+    /// Whether a key is physically down now. Asked of the hardware state, because this tap swallows the hold
+    /// key's own events before the session sees them.
+    private static func isDown(_ key: UInt16) -> Bool {
+        if let flag = KeyBinding.modifierKeys[key]?.flag {
+            return modifiers(CGEventSource.flagsState(.hidSystemState)).contains(flag)
+        }
+        return CGEventSource.keyState(.hidSystemState, key: CGKeyCode(key))
+    }
+
     static func modifiers(_ flags: CGEventFlags) -> KeyModifiers {
         var result: KeyModifiers = []
         if flags.contains(.maskControl) { result.insert(.control) }
@@ -66,12 +77,18 @@ final class GlobalShortcut {
 
     private func handle(_ type: CGEventType, event: CGEvent) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            reset()
-            onCancel?()
+            // Events were missed while the tap was off, perhaps the release of the hold key. If it is no longer
+            // down, finish what it was recording rather than lose it or leave the microphone open.
+            if let heldKey, !Self.isDown(heldKey) {
+                let recording = gesture.active && !gesture.handsFree
+                reset()
+                if recording { onStop?() }
+            }
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return false
         }
         guard isSuspended?() != true else { return false }
+        gesture.sync(recording: isCapturing?() == true)
         let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
         modifiers = Self.modifiers(event.flags)
 

@@ -111,14 +111,9 @@ final class AppModel {
     @ObservationIgnored private var recordingSnippets: [Snippet] = []
 
     var isBusy: Bool { phase != .idle }
+    /// The microphone is open or opening. Finishing and refining are busy, but no longer listening.
+    var isCapturing: Bool { phase == .preparing || phase == .listening }
     var totalWords: Int { data.history.reduce(0) { $0 + $1.wordCount } }
-    var estimatedMinutesSaved: Int {
-        max(0, Int(Double(totalWords) / 40 - data.history.reduce(0) { $0 + $1.duration } / 60))
-    }
-    var wordsPerMinute: Int {
-        let duration = data.history.reduce(0) { $0 + $1.duration }
-        return duration > 0 ? Int(Double(totalWords) / duration * 60) : 0
-    }
 
     init(store: DesktopStore? = nil,
          rewriteText: @escaping @MainActor (String, String, String) async throws -> String = LocalWriter.edit) {
@@ -228,11 +223,14 @@ final class AppModel {
 
     func start(command: Bool = false) {
         guard !isBusy else { return }
-        let target = TextDestination.capture()
-        guard target?.secure != true else { showStatus("Dictation is unavailable in password fields."); return }
+        let target = TextDestination.capture(content: command || data.settings.useContext)
+        // A refusal is said on the bar, where the shortcut was aimed, as well as in the hub.
+        guard target?.secure != true else { refuse("Dictation is unavailable in password fields.", bar: "not in password fields"); return }
         if command {
-            guard let target, !target.selectedText.isEmpty else { showStatus("Select text in another app, then hold \(data.settings.shortcuts.editSelection.title) to edit it."); return }
-            if let reason = LocalWriter.unavailableReason { showStatus(reason); return }
+            guard let target, !target.selectedText.isEmpty else {
+                refuse("Select text in another app, then hold \(data.settings.shortcuts.editSelection.title) to edit it.", bar: "select text first"); return
+            }
+            if let reason = LocalWriter.unavailableReason { refuse(reason, bar: "voice edit unavailable"); return }
         }
         sessionID = UUID()
         let id = sessionID
@@ -287,7 +285,8 @@ final class AppModel {
     func cancel() {
         guard isBusy else { return }
         cleanup()
-        preview = ""; status = "Dictation cancelled."
+        // The bar going back to rest says it was cancelled. A message would sit there until the next dictation.
+        preview = ""; status = ""
         presentationChanged?()
     }
 
@@ -371,6 +370,10 @@ final class AppModel {
                 if command, let target {
                     try await target.replaceSelection(with: text)
                     landed = "replaced in \(Self.shortName(target.name))"
+                } else if NSWorkspace.shared.frontmostApplication?.processIdentifier == ProcessInfo.processInfo.processIdentifier {
+                    // Practising in our own window: the text is on Home and on the clipboard. Nothing failed.
+                    TextDestination.copy(text)
+                    landed = "copied"
                 } else {
                     landed = "pasted in \(Self.shortName(try await TextDestination.paste(text)))"
                 }
@@ -425,6 +428,7 @@ final class AppModel {
     }
 
     func showStatus(_ message: String) { status = message; presentationChanged?() }
+    private func refuse(_ message: String, bar: String) { status = message; showBarNotice(bar) }
     func previewBar() { previewingBar = true; presentationChanged?() }
     func endBarPreview() { previewingBar = false; configurationChanged?() }
     func copy(_ text: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text, forType: .string); status = "Copied." }
