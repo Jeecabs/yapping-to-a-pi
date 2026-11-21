@@ -389,7 +389,8 @@ function renderStatus(
 }
 
 function formatStatus(snapshot: DictationSnapshot, config: Awaited<ReturnType<typeof loadDictationConfig>>): string {
+  const waitingFor = snapshot.waitingFor ? ` (${snapshot.waitingFor.replace("-", " ")})` : "";
   const inputDevice = snapshot.inputDevice ? ` — ${snapshot.inputDevice}` : "";
   const detail = snapshot.error ? ` — ${snapshot.error}` : "";
-  return `${snapshot.phase}${inputDevice} — ${config.shortcut} — ${config.locale}${detail}`;
+  return `${snapshot.phase}${waitingFor}${inputDevice} — ${config.shortcut} — ${config.locale}${detail}`;
 }

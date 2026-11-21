@@ -94,3 +94,16 @@ it("routes fullscreen mic clicks without stealing editor focus or submitting the
   click(3); // Stale mouse targets cannot restart a disposed session.
   assert.equal(starts, 1);
 });
+
+it("says what a slow first recording is waiting for", () => {
+  const tui = { mode: "regular", requestRender() {} } as unknown as ConstructorParameters<typeof DictationWidget>[0];
+  const widget = new DictationWidget(tui, { fg: (_color, text) => text }, { phase: "preparing" }, "f6", () => {});
+
+  assert.deepEqual(widget.render(80), [" Cancel mic  f6 · preparing microphone"]);
+  widget.update({ phase: "preparing", waitingFor: "model-download" });
+  assert.deepEqual(widget.render(80), [" Cancel mic  f6 · downloading speech model"]);
+  widget.update({ phase: "preparing", waitingFor: "microphone-permission" });
+  assert.deepEqual(widget.render(80), [" Cancel mic  f6 · allow microphone access"]);
+  // A narrow terminal keeps the control and drops the explanation before it would clip.
+  assert.deepEqual(widget.render(24), [" Cancel mic  f6"]);
+});

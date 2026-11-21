@@ -8,6 +8,8 @@ export interface DictationSnapshot {
   inputDevice?: string;
   partialText?: string;
   error?: string;
+  /** What a slow preparation is waiting on, so a first run does not look stuck. */
+  waitingFor?: "model-download" | "microphone-permission";
 }
 
 export interface HelperExit {
@@ -47,6 +49,8 @@ interface ExitWaiter {
 }
 
 type Termination = "none" | "timed-out" | "cancelled";
+
+const PREVIEW_INSERTED = "The live preview was inserted. Check it before sending.";
 
 export class DictationController {
   private readonly startHelper: StartHelper;
@@ -118,6 +122,8 @@ export class DictationController {
   stop(_reason: "toggle" | "command"): boolean {
     const generation = this.activeGeneration;
     if (!this.session || generation === undefined) return false;
+    // A failed helper is already being terminated. Stopping it again would replace its error with a generic one.
+    if (this.current.phase === "failed") return false;
     if (this.current.phase !== "stopping") {
       this.stoppedWhileListening = this.current.phase === "listening";
       this.transition({ ...this.current, phase: "stopping", partialText: undefined });
@@ -166,7 +172,16 @@ export class DictationController {
           : "preparing";
       // A listening update after an input-device change keeps the visible preview.
       const partialText = phase === "listening" ? this.current.partialText : undefined;
-      this.transition({ phase, locale: message.locale, inputDevice: message.inputDevice, partialText });
+      const waitingFor = message.state === "installing-model"
+        ? "model-download"
+        : message.state === "requesting-permission" ? "microphone-permission" : undefined;
+      this.transition({
+        phase,
+        locale: message.locale,
+        inputDevice: message.inputDevice,
+        partialText,
+        ...(waitingFor ? { waitingFor } : {}),
+      });
       return;
     }
 
@@ -211,7 +226,9 @@ export class DictationController {
     const detail = exit.stderr.trim();
     this.detach(generation, {
       phase: "failed",
-      error: detail || `Dictation helper exited${exit.signal ? ` (${exit.signal})` : ` with code ${exit.code ?? "unknown"}`}.`,
+      error: this.keepingPreview(
+        detail || `Dictation helper exited${exit.signal ? ` (${exit.signal})` : ` with code ${exit.code ?? "unknown"}`}.`,
+      ),
     });
   }
 
@@ -221,15 +238,9 @@ export class DictationController {
       return;
     }
 
-    // Losing a long recording is worse than inserting the less polished live preview.
-    const preview = this.latestPartial?.trim();
-    if (preview) {
-      this.finalReceived = true;
-      this.onTranscript?.(preview);
-    }
     this.detach(generation, {
       phase: "failed",
-      error: preview
+      error: this.insertPreview()
         ? "Dictation took too long to finish, so the live preview was inserted. Check it before sending."
         : "Dictation took too long to finish. Nothing was inserted.",
     });
@@ -237,8 +248,24 @@ export class DictationController {
 
   private fail(generation: number, message: string): void {
     if (!this.isActive(generation)) return;
-    this.transition({ phase: "failed", error: message });
+    this.transition({ phase: "failed", error: this.keepingPreview(message) });
     this.session?.kill("SIGTERM");
+  }
+
+  /** The message for a recording that broke while it was being heard, after rescuing what it had so far. */
+  private keepingPreview(message: string): string {
+    const heard = this.current.phase === "listening"
+      || (this.current.phase === "stopping" && this.stoppedWhileListening);
+    return heard && this.insertPreview() ? `${message} ${PREVIEW_INSERTED}` : message;
+  }
+
+  /** Losing a long recording is worse than inserting the less polished live preview. */
+  private insertPreview(): boolean {
+    const preview = this.finalReceived ? undefined : this.latestPartial?.trim();
+    if (!preview) return false;
+    this.finalReceived = true;
+    this.onTranscript?.(preview);
+    return true;
   }
 
   private isActive(generation: number): boolean {

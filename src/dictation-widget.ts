@@ -53,8 +53,11 @@ export class DictationWidget {
     // A clipped label is not an actionable target.
     if (clickable && width >= visibleWidth(button) + 1) this.buttonWidth = visibleWidth(button);
     const control = this.theme.fg(color, button);
+    const preparing = this.snapshot.waitingFor === "model-download" ? "downloading speech model"
+      : this.snapshot.waitingFor === "microphone-permission" ? "allow microphone access"
+      : "preparing microphone";
     const hint = phase === "stopping" ? "text stays editable"
-      : phase === "preparing" ? `${this.shortcut} · preparing microphone`
+      : phase === "preparing" ? `${this.shortcut} · ${preparing}`
       : phase === "listening" ? `${this.shortcut} · stop and insert`
       : `${this.shortcut}`;
     const availableHintWidth = width - visibleWidth(button) - 3;

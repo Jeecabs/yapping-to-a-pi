@@ -250,6 +250,133 @@ describe("DictationController", () => {
     assert.match(controller.snapshot().error ?? "", /Nothing was inserted/);
   });
 
+  it("inserts the live preview when a recording breaks while it is being heard", () => {
+    let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onTranscript: (text) => transcripts.push(text),
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "partial", text: " three minutes of careful dictation " });
+    helper?.callbacks.onMessage({
+      type: "error",
+      code: "audio-backpressure",
+      message: "Speech analysis fell behind, so dictation stopped.",
+    });
+
+    assert.deepEqual(transcripts, ["three minutes of careful dictation"]);
+    assert.equal(controller.snapshot().phase, "failed");
+    assert.equal(
+      controller.snapshot().error,
+      "Speech analysis fell behind, so dictation stopped. The live preview was inserted. Check it before sending.",
+    );
+
+    helper?.callbacks.onMessage({ type: "final", text: "a late final must not insert twice" });
+    helper?.exit(1);
+    assert.deepEqual(transcripts, ["three minutes of careful dictation"]);
+    assert.equal(controller.snapshot().phase, "failed");
+  });
+
+  it("inserts the live preview when the helper crashes mid-recording", () => {
+    let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onTranscript: (text) => transcripts.push(text),
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "partial", text: "please refactor the parser" });
+    helper?.callbacks.onExit({ code: null, signal: "SIGSEGV", stderr: "" });
+
+    assert.deepEqual(transcripts, ["please refactor the parser"]);
+    assert.equal(
+      controller.snapshot().error,
+      "Dictation helper exited (SIGSEGV). The live preview was inserted. Check it before sending.",
+    );
+  });
+
+  it("inserts nothing when a recording fails before it was heard or after preparation was cancelled", () => {
+    let helper: FakeHelper | undefined;
+    const transcripts: string[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onTranscript: (text) => transcripts.push(text),
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "error", code: "microphone-denied", message: "Microphone access was denied." });
+    assert.equal(controller.snapshot().error, "Microphone access was denied.");
+    helper?.exit(1);
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    controller.stop("toggle");
+    helper?.callbacks.onMessage({ type: "partial", text: "heard after the cancel" });
+    helper?.callbacks.onExit({ code: null, signal: "SIGSEGV", stderr: "" });
+
+    assert.deepEqual(transcripts, []);
+    assert.equal(controller.snapshot().error, "Dictation helper exited (SIGSEGV).");
+  });
+
+  it("keeps a failure's own error when the shortcut is pressed before the helper has exited", () => {
+    let helper: FakeHelper | undefined;
+    const states: DictationSnapshot[] = [];
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+      onStateChange: (state) => states.push(state),
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    helper?.callbacks.onMessage({ type: "error", code: "locale-unsupported", message: "The on-device speech model does not support xx." });
+    const failed = states.length;
+
+    assert.equal(controller.toggle({ executable: "/helper", locale: "en-AU" }), "stop-requested");
+    assert.equal(controller.stop("command"), false);
+    assert.equal(helper?.stopRequests, 0);
+    helper?.exit(1);
+
+    assert.equal(states.length, failed);
+    assert.deepEqual(controller.snapshot(), { phase: "failed", error: "The on-device speech model does not support xx." });
+    assert.equal(controller.toggle({ executable: "/helper", locale: "en-AU" }), "started");
+    helper?.exit();
+  });
+
+  it("says what a slow preparation is waiting for", () => {
+    let helper: FakeHelper | undefined;
+    const controller = new DictationController({
+      startHelper: (_options, callbacks) => {
+        helper = new FakeHelper(callbacks);
+        return helper;
+      },
+    });
+
+    controller.toggle({ executable: "/helper", locale: "en-AU" });
+    assert.equal(controller.snapshot().waitingFor, undefined);
+    helper?.callbacks.onMessage({ type: "state", state: "installing-model", locale: "en-AU" });
+    assert.deepEqual(controller.snapshot(), { phase: "preparing", locale: "en-AU", inputDevice: undefined, partialText: undefined, waitingFor: "model-download" });
+    helper?.callbacks.onMessage({ type: "state", state: "requesting-permission", locale: "en-AU" });
+    assert.equal(controller.snapshot().waitingFor, "microphone-permission");
+    helper?.callbacks.onMessage({ type: "state", state: "listening", locale: "en-AU" });
+    assert.equal(controller.snapshot().waitingFor, undefined);
+    helper?.exit();
+  });
+
   it("keeps the preview when the helper reports a new input device", () => {
     let helper: FakeHelper | undefined;
     const controller = new DictationController({
